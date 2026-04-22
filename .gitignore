@@ -1,0 +1,7 @@
+.cache
+.vscode
+/tutorial
+*/build
+idf_py*
+/build
+*.lock
