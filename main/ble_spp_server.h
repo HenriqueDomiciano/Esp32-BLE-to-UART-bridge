@@ -29,7 +29,7 @@ extern "C" {
 #define BLE_SVC_SPP_CHR_UUID16_WRITE_UART_0                              0xABE1
 #define BLE_SVC_SPP_CHR_UUID16_READ_UART_0                               0xABE2 
 
-
+#define LED_CONNECTION_UPDATE_TIME                                       5000000
 struct ble_hs_cfg;
 struct ble_gatt_register_ctxt;
 
@@ -56,9 +56,7 @@ struct blink_structure
 } typedef blinkParameters_t ;
 
 enum {
-    LINKED,
     CONNECTED,
-    DISCONNECTED, 
-    SUBSCRIBED, 
-    COMMUNICATING
+    DISCONNECTED,
+    WAITING
 } typedef BleState_e ;;
