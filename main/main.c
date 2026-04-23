@@ -1,7 +1,10 @@
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_peripheral.h"
+#include "esp_timer.h"
 #include "freertos/idf_additions.h"
+#include "freertos/projdefs.h"
+#include "hal/gpio_types.h"
 #include "hal/uart_types.h"
 #include "nvs_flash.h"
 /* BLE */
@@ -31,7 +34,7 @@ u_int16_t ble_spp_rx_handle_uart_1;
 u_int16_t ble_spp_tx_handle_uart_0;
 u_int16_t ble_spp_rx_handle_uart_0;
 
-static blinkParameters_t default_blink_parameter = {GPIO_NUM_8, 100, 100};
+static blinkParameters_t default_blink_parameter = {GPIO_NUM_8, 50, 50};
 
 static BleState_e current_state = DISCONNECTED;
 
@@ -153,7 +156,6 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     if (event->link_estab.status == 0) {
       rc = ble_gap_conn_find(event->link_estab.conn_handle, &desc);
       assert(rc == 0);
-      current_state = CONNECTED;
       ble_spp_server_print_conn_desc(&desc);
     }
     MODLOG_DFLT(INFO, "\n");
@@ -165,7 +167,6 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     return 0;
 
   case BLE_GAP_EVENT_DISCONNECT:
-    current_state = DISCONNECTED;
     MODLOG_DFLT(INFO, "disconnect; reason=%d ", event->disconnect.reason);
     ble_spp_server_print_conn_desc(&event->disconnect.conn);
     MODLOG_DFLT(INFO, "\n");
@@ -174,12 +175,10 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     subscription[conn].uart0_notify = false;
     subscription[conn].uart1_notify = false;
 
-    /* Connection terminated; resume advertising. */
     ble_spp_server_advertise();
     return 0;
 
   case BLE_GAP_EVENT_CONN_UPDATE:
-    /* The central has updated the connection parameters. */
     MODLOG_DFLT(INFO, "connection updated; status=%d ",
                 event->conn_update.status);
     rc = ble_gap_conn_find(event->conn_update.conn_handle, &desc);
@@ -232,33 +231,28 @@ static void ble_spp_server_on_sync(void) {
   rc = ble_hs_util_ensure_addr(0);
   assert(rc == 0);
 
-  /* Figure out address to use while advertising (no privacy for now) */
   rc = ble_hs_id_infer_auto(0, &own_addr_type);
   if (rc != 0) {
     MODLOG_DFLT(ERROR, "error determining address type; rc=%d\n", rc);
     return;
   }
 
-  /* Printing ADDR */
   uint8_t addr_val[6] = {0};
   rc = ble_hs_id_copy_addr(own_addr_type, addr_val, NULL);
 
   MODLOG_DFLT(INFO, "Device Address: ");
   print_addr(addr_val);
   MODLOG_DFLT(INFO, "\n");
-  /* Begin advertising. */
   ble_spp_server_advertise();
 }
 
 void ble_spp_server_host_task(void *param) {
   MODLOG_DFLT(INFO, "BLE Host Task Started");
-  /* This function will return only when nimble_port_stop() is executed */
   nimble_port_run();
 
   nimble_port_freertos_deinit();
 }
 
-/* Callback function for custom service */
 static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
                                 struct ble_gatt_access_ctxt *ctxt, void *arg) {
   switch (ctxt->op) {
@@ -267,32 +261,25 @@ static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
     break;
   case BLE_GATT_ACCESS_OP_WRITE_CHR:
     if (ctxt->om != NULL) {
-      current_state = CONNECTED;
-      // 1. Get the total length of the full 2000-byte chunk
       uint16_t total_len = OS_MBUF_PKTLEN(ctxt->om);
 
-      // 2. Allocate a temporary buffer to flatten the chained fragments
       uint8_t *temp_buf = (uint8_t *)malloc(total_len);
       if (temp_buf == NULL) {
         MODLOG_DFLT(ERROR, "Malloc failed for %d bytes\n", total_len);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
       }
 
-      // 3. Flatten the chained mbuf data into our buffer
       os_mbuf_copydata(ctxt->om, 0, total_len, temp_buf);
 
-      // 4. ROUTING LOGIC: Decide which UART gets the data
       if (attr_handle == ble_spp_rx_handle_uart_0) {
-        // Send to UART0 (Your new peripheral port)
         uart_write_bytes(UART_NUM_0, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART0\n", total_len);
       } else if (attr_handle == ble_spp_rx_handle_uart_1) {
-        // Send to UART1 (The original port)
         uart_write_bytes(UART_NUM_1, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART1\n", total_len);
       }
 
-      free(temp_buf); // Always clean up
+      free(temp_buf);
     }
     break;
 
@@ -421,16 +408,15 @@ void ble_server_uart_task(void *pvParameters) {
 
       if (event.type == UART_DATA && event.size > 0) {
 
-        current_state = CONNECTED;
 
         uint8_t *data = malloc(event.size);
         if (!data) {
           ESP_LOGE("UART TASK", "Malloc failed");
           continue;
         }
-        ESP_LOGI("UART TASK","event size : %d",event.size);
+        ESP_LOGI("UART TASK", "event size : %d", event.size);
         uart_read_bytes(connection->Uart_port, data, event.size, portMAX_DELAY);
-        ESP_LOGI("UART TASK","Left");
+        ESP_LOGI("UART TASK", "Left");
         // 🔥 Process buffer ONCE (not per connection)
         uint16_t offset = 0;
 
@@ -455,17 +441,17 @@ void ble_server_uart_task(void *pvParameters) {
           uint16_t chunk =
               (event.size - offset > max_p) ? max_p : (event.size - offset);
 
-          // 🔥 Send SAME chunk to all connections
-          for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS+1; conn++) {
+          for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1;
+               conn++) {
 
-            //struct ble_gap_conn_desc desc;
-            //if (ble_gap_conn_find(conn, &desc) != 0) {
-            //  continue;
-            //}
-            ESP_LOGI("UART TASK","UART CONN %d %d %d",conn,subscription[conn].uart0_notify,subscription[conn].uart1_notify);
-            ESP_LOGI("UART TASK", "Entered UART 0 Task conn %d ",subscription[conn].uart0_notify);
-            ESP_LOGI("UART TASK", "Entered UART 1 Task conn %d ",subscription[conn].uart1_notify);
-            // UART0 → BLE
+            ESP_LOGI("UART TASK", "UART CONN %d %d %d", conn,
+                     subscription[conn].uart0_notify,
+                     subscription[conn].uart1_notify);
+            ESP_LOGI("UART TASK", "Entered UART 0 Task conn %d ",
+                     subscription[conn].uart0_notify);
+            ESP_LOGI("UART TASK", "Entered UART 1 Task conn %d ",
+                     subscription[conn].uart1_notify);
+            
             if (connection->Uart_port == UART_NUM_0 &&
                 subscription[conn].uart0_notify) {
               struct os_mbuf *om0 = ble_hs_mbuf_from_flat(data + offset, chunk);
@@ -478,11 +464,10 @@ void ble_server_uart_task(void *pvParameters) {
               }
             }
 
-            // UART1 → BLE
             if (connection->Uart_port == UART_NUM_1 &&
                 subscription[conn].uart1_notify) {
 
-               ESP_LOGI("UART TASK", "Entered UART 1 Task conn %s data ",data);
+              ESP_LOGI("UART TASK", "Entered UART 1 Task conn %s data ", data);
               struct os_mbuf *om1 = ble_hs_mbuf_from_flat(data + offset, chunk);
 
               rc = ble_gatts_notify_custom(conn, ble_spp_tx_handle_uart_1, om1);
@@ -496,7 +481,6 @@ void ble_server_uart_task(void *pvParameters) {
 
           offset += chunk;
 
-          // 🔥 CRITICAL: yield to BLE + other tasks
           vTaskDelay(1);
         }
 
@@ -516,14 +500,11 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
       .rx_flow_ctrl_thresh = 122,
       .source_clk = UART_SCLK_DEFAULT,
   };
-  // Install UART driver, and get the queue.
   uart_driver_install(uart_connection_attributes->Uart_port, 4096, 8192, 10,
                       &uart_connection_attributes->Uart_queue_handle, 0);
   MODLOG_DFLT(INFO, "Queue addr: %p\n",
               uart_connection_attributes->Uart_queue_handle);
-  // Set UART parameters
   uart_param_config(uart_connection_attributes->Uart_port, &uart_config);
-  // Set UART pins
   uart_set_pin(uart_connection_attributes->Uart_port,
                uart_connection_attributes->tx, uart_connection_attributes->rx,
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
@@ -533,28 +514,58 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
 
 blinkParameters_t get_current_ble_state_config(void) {
   switch (current_state) {
-  case LINKED:
-    return (blinkParameters_t){default_blink_parameter.pin, 100, 300};
   case CONNECTED:
-    return (blinkParameters_t){default_blink_parameter.pin, 500, 500};
+    return (blinkParameters_t){default_blink_parameter.pin, 0,5000 };
   case DISCONNECTED:
     return default_blink_parameter;
-  case SUBSCRIBED:
-    return (blinkParameters_t){default_blink_parameter.pin, 1000, 1000};
-  case COMMUNICATING:
-    return (blinkParameters_t){default_blink_parameter.pin, 1000, 0};
+  case WAITING:
+    return (blinkParameters_t){default_blink_parameter.pin, 500,500 };
   default:
     return default_blink_parameter;
   }
 }
 
-void blink_task(void *pvParameters) {
+uint8_t get_number_of_connections(void) {
+  uint8_t counter = 0;
+  for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1; conn++) {
+    struct ble_gap_conn_desc desc;
+    if (ble_gap_conn_find(conn, &desc) == 0) 
+    {
+      counter ++;
+    }
+  }
+  return counter;
+}
+
+void led_task(void *pvParameters) {
   blinkParameters_t state = get_current_ble_state_config();
-
+  uint8_t number_of_connections;
   gpio_reset_pin(state.pin);
-  gpio_set_direction(state.pin, GPIO_MODE_OUTPUT);
+  gpio_set_direction(state.pin, GPIO_MODE_OUTPUT_OD);
 
+  int64_t starting_time = esp_timer_get_time();
+  int64_t time_difference;
+  int64_t current_time;
   while (1) {
+    current_time = esp_timer_get_time();
+    time_difference = current_time - starting_time;
+    if (time_difference >= LED_CONNECTION_UPDATE_TIME) { 
+        starting_time = current_time;
+        number_of_connections = get_number_of_connections();
+      if (number_of_connections == 0) {
+        current_state = WAITING;
+        continue;
+      } else {
+        current_state = CONNECTED;
+      }
+      for (int i = 0; i < number_of_connections; i++) {
+        gpio_set_level(state.pin, 1);
+        vTaskDelay(pdMS_TO_TICKS(300));
+        gpio_set_level(state.pin, 0);
+        vTaskDelay(pdMS_TO_TICKS(300));
+      }
+    }
+
     state = get_current_ble_state_config();
     gpio_set_level(state.pin, 1);
     vTaskDelay(pdMS_TO_TICKS(state.time_on_ms));
@@ -567,7 +578,7 @@ void blink_task(void *pvParameters) {
 void app_main(void) {
   int rc;
 
-  xTaskCreate(blink_task, "uTaskBlink", 2048, NULL, 2, NULL);
+  xTaskCreate(led_task, "uTaskBlink", 2048, NULL, 2, NULL);
   Port0.Uart_port = UART_NUM_0;
   Port0.tx = GPIO_NUM_10;
   Port0.rx = GPIO_NUM_11;
@@ -576,7 +587,6 @@ void app_main(void) {
   Port1.tx = GPIO_NUM_1;
   Port1.rx = GPIO_NUM_2;
 
-  /* Initialize NVS — it is used to store PHY calibration data */
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -591,15 +601,14 @@ void app_main(void) {
     return;
   }
 
-  /* Initialize connection_handle array */
   for (int i = 0; i < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; i++) {
     subscription[i].uart0_notify = false;
     subscription[i].uart1_notify = false;
   }
-  /* Initialize uart driver and start uart task */
+
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
-  /* Initialize the NimBLE host configuration. */
+  
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
   ble_hs_cfg.sync_cb = ble_spp_server_on_sync;
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
