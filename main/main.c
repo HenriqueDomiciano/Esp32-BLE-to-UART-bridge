@@ -7,6 +7,7 @@
 #include "hal/gpio_types.h"
 #include "hal/uart_types.h"
 #include "nvs_flash.h"
+#include "task/led/led.h"
 /* BLE */
 #include "ble_spp_server.h"
 #include "driver/uart.h"
@@ -34,10 +35,8 @@ u_int16_t ble_spp_rx_handle_uart_1;
 u_int16_t ble_spp_tx_handle_uart_0;
 u_int16_t ble_spp_rx_handle_uart_0;
 
-static blinkParameters_t default_blink_parameter = {GPIO_NUM_8, 50, 50};
-
-static BleState_e current_state = DISCONNECTED;
-
+static BleState_e led_state = DISCONNECTED;
+  
 static UartConnection Port0 = {0};
 static UartConnection Port1 = {0};
 
@@ -408,7 +407,6 @@ void ble_server_uart_task(void *pvParameters) {
 
       if (event.type == UART_DATA && event.size > 0) {
 
-
         uint8_t *data = malloc(event.size);
         if (!data) {
           ESP_LOGE("UART TASK", "Malloc failed");
@@ -451,7 +449,7 @@ void ble_server_uart_task(void *pvParameters) {
                      subscription[conn].uart0_notify);
             ESP_LOGI("UART TASK", "Entered UART 1 Task conn %d ",
                      subscription[conn].uart1_notify);
-            
+
             if (connection->Uart_port == UART_NUM_0 &&
                 subscription[conn].uart0_notify) {
               struct os_mbuf *om0 = ble_hs_mbuf_from_flat(data + offset, chunk);
@@ -512,73 +510,13 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
               (void *)uart_connection_attributes, 8, NULL);
 }
 
-blinkParameters_t get_current_ble_state_config(void) {
-  switch (current_state) {
-  case CONNECTED:
-    return (blinkParameters_t){default_blink_parameter.pin, 0,5000 };
-  case DISCONNECTED:
-    return default_blink_parameter;
-  case WAITING:
-    return (blinkParameters_t){default_blink_parameter.pin, 500,500 };
-  default:
-    return default_blink_parameter;
-  }
-}
-
-uint8_t get_number_of_connections(void) {
-  uint8_t counter = 0;
-  for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1; conn++) {
-    struct ble_gap_conn_desc desc;
-    if (ble_gap_conn_find(conn, &desc) == 0) 
-    {
-      counter ++;
-    }
-  }
-  return counter;
-}
-
-void led_task(void *pvParameters) {
-  blinkParameters_t state = get_current_ble_state_config();
-  uint8_t number_of_connections;
-  gpio_reset_pin(state.pin);
-  gpio_set_direction(state.pin, GPIO_MODE_OUTPUT_OD);
-
-  int64_t starting_time = esp_timer_get_time();
-  int64_t time_difference;
-  int64_t current_time;
-  while (1) {
-    current_time = esp_timer_get_time();
-    time_difference = current_time - starting_time;
-    if (time_difference >= LED_CONNECTION_UPDATE_TIME) { 
-        starting_time = current_time;
-        number_of_connections = get_number_of_connections();
-      if (number_of_connections == 0) {
-        current_state = WAITING;
-        continue;
-      } else {
-        current_state = CONNECTED;
-      }
-      for (int i = 0; i < number_of_connections; i++) {
-        gpio_set_level(state.pin, 1);
-        vTaskDelay(pdMS_TO_TICKS(300));
-        gpio_set_level(state.pin, 0);
-        vTaskDelay(pdMS_TO_TICKS(300));
-      }
-    }
-
-    state = get_current_ble_state_config();
-    gpio_set_level(state.pin, 1);
-    vTaskDelay(pdMS_TO_TICKS(state.time_on_ms));
-
-    gpio_set_level(state.pin, 0);
-    vTaskDelay(pdMS_TO_TICKS(state.time_off_ms));
-  }
-}
-
 void app_main(void) {
   int rc;
 
-  xTaskCreate(led_task, "uTaskBlink", 2048, NULL, 2, NULL);
+  
+
+  xTaskCreate(led_task, "uTaskBlink", 2048, (void*)&led_state, 2, NULL);
+
   Port0.Uart_port = UART_NUM_0;
   Port0.tx = GPIO_NUM_10;
   Port0.rx = GPIO_NUM_11;
@@ -608,7 +546,7 @@ void app_main(void) {
 
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
-  
+
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
   ble_hs_cfg.sync_cb = ble_spp_server_on_sync;
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
@@ -628,16 +566,13 @@ void app_main(void) {
   ble_hs_cfg.sm_our_key_dist = 1;
   ble_hs_cfg.sm_their_key_dist = 1;
 #endif
-
   /* Register custom service */
   rc = gatt_svr_init();
   assert(rc == 0);
   /* Set the default device name. */
   rc = ble_svc_gap_device_name_set("UART-to-BLE-Bridge");
   assert(rc == 0);
-
   /* XXX Need to have template for store */
   ble_store_config_init();
-
   nimble_port_freertos_init(ble_spp_server_host_task);
 }
