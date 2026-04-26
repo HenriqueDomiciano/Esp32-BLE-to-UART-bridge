@@ -23,11 +23,11 @@ jobs:
           command: |
             idf.py build
             cd build
-            esptool.py --chip esp32c3 merge_bin -o build/release_firmware.bin @flash_args
+            esptool.py --chip esp32c3 merge_bin -o release_firmware.bin @flash_args
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build/release_firmware.bin
+          files: release_firmware.bin
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
