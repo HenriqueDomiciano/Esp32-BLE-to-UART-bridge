@@ -217,6 +217,7 @@ See:
 - [ ] Extended multi-client support
 - [ ] Framed packet mode
 - [ ] Performance tuning
+- [x] UART baud rate change in run time
 
 ---
 

@@ -1,6 +1,11 @@
+#include "driver/uart.h"
+#include "hal/uart_types.h"
+#include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "include.h"
 #include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
@@ -14,6 +19,9 @@ u_int16_t ble_spp_tx_handle_uart_1;
 u_int16_t ble_spp_rx_handle_uart_1;
 u_int16_t ble_spp_tx_handle_uart_0;
 u_int16_t ble_spp_rx_handle_uart_0;
+
+u_int16_t ble_spp_handle_uart_1_baud_rate;
+u_int16_t ble_spp_handle_uart_0_baud_rate;
 
 static BleState_e led_state = DISCONNECTED;
 
@@ -257,10 +265,25 @@ static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
       if (attr_handle == ble_spp_rx_handle_uart_0) {
         uart_write_bytes(UART_NUM_0, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART0\n", total_len);
-      } else if (attr_handle == ble_spp_rx_handle_uart_1) {
+      } 
+      else if (attr_handle == ble_spp_rx_handle_uart_1) {
         uart_write_bytes(UART_NUM_1, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART1\n", total_len);
       }
+      else if (attr_handle == ble_spp_handle_uart_0_baud_rate) 
+      {
+          uint32_t new_uart0_baud_rate; 
+          memcpy(&new_uart0_baud_rate, temp_buf, sizeof(new_uart0_baud_rate));
+          uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);  
+      }
+      else if (attr_handle == ble_spp_handle_uart_1_baud_rate) 
+      {
+        
+          uint32_t new_uart1_baud_rate; 
+          memcpy(&new_uart1_baud_rate, temp_buf, sizeof(new_uart1_baud_rate));
+          uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);  
+      }
+
 
       free(temp_buf);
     }
@@ -295,8 +318,12 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                     .val_handle = &ble_spp_tx_handle_uart_1,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
-                {
-                    0, /* No more characteristics */
+                { 
+                    .uuid =
+                        BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_UART_1_BAUD_RATE),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_spp_handle_uart_1_baud_rate,
+                    .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 }},
     },
     {
@@ -319,8 +346,12 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                     .val_handle = &ble_spp_tx_handle_uart_0,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
-                {
-                    0, /* No more characteristics */
+                { 
+                    .uuid =
+                        BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_UART_0_BAUD_RATE),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_spp_handle_uart_0_baud_rate,
+                    .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 }},
     },
 
