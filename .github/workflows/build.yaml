@@ -1,0 +1,30 @@
+name: Build SPP_SERVER.
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Importante para projetos que usam componentes externos
+
+      - name: Build for ESP32
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.4.1 # Defina a versão do SDK desejada (ex: v4.4, latest, etc.)
+          target: esp32-c3         # Alvos comuns: esp32, esp32s3, esp32c3
+          path: '.'             # Caminho para o seu projeto (onde está o CMakeLists.txt)
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-binaries
+          path: build/*.bin     # Salva os binários (.bin) gerados para download

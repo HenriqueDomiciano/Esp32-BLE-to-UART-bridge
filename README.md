@@ -1,111 +1,225 @@
-| Supported Targets | ESP32 | ESP32-C2 | ESP32-C3 | ESP32-C5 | ESP32-C6 | ESP32-C61 | ESP32-H2 | ESP32-S3 |
-| ----------------- | ----- | -------- | -------- | -------- | -------- | --------- | -------- | -------- |
+# ESP32-C3 Mini Dual UART ↔ BLE Bridge
 
-# BLE SPP peripheral example
+![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.x-red)
+![BLE](https://img.shields.io/badge/BLE-NimBLE-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-  In Bluetooth classic (BR/EDR) systems, a Serial Port Profile (SPP) is an adopted profile defined by the Bluetooth Special Interest Group (SIG) used to emulate a serial port connection over a Bluetooth wireless connection. For BLE systems, an adopted SPP profile over BLE is not defined, thus emulation of a serial port must be implemented as a vendor-specific custom profile.
+High-throughput dual UART to Bluetooth Low Energy bridge for the **ESP32-C3 Mini**, built with **ESP-IDF + NimBLE**.
 
-  This reference design consists of two Demos, the BLE SPP server and BLE SPP client that run on their respective endpoints. These devices connect and exchange data wirelessly with each other. This capability creates a virtual serial link over the air. Each byte input can be sent and received by both the server and client. The SPP server is implemented as the [spp_server](../spp_server) demo while the SPP client is implemented as the [spp_client](../spp_client) demo. Espressif designed the BLE SPP applications to use the UART transport layer but you could adapt this design to work with other serial protocols, such as SPI.
+Turn an ESP32-C3 Mini into a compact BLE serial bridge for embedded devices, sensors, test equipment, or UART-based protocols.
 
-  This vendor-specific custom profile is implemented in [main.c](../spp_client/main/main.c) and [main.c](../spp_server/main/main.c).
+---
 
-## Using Examples
+# Overview
 
-### Initialization
+Features:
 
-  Both the server and client will first initialize the UART and BLE. The server demo will set up the serial port service with standard GATT and GAP services in the attribute server. The client demo will scan the BLE broadcast over the air to find the SPP server.
+- Dual independent UART channels over BLE
+- Bidirectional bridge:
+  - UART → BLE notifications
+  - BLE writes → UART
+- One GATT service per UART
+- MTU-aware packet fragmentation
+- Event-driven UART transport
+- Designed for high-throughput BLE communication
+- Companion Python TCP bridge in `/tools`
 
-### Event Processing
+---
 
-  The SPP server has two main event processing functions for BLE event:
+# Hardware
 
-```c
-  static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
-  static int  ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,struct ble_gatt_access_ctxt *ctxt, void *arg);
+Tested on:
+
+- ESP32-C3 Mini DEV Board
+
+Example wiring:
+
+```text
+UART0
+TX -> GPIO4
+RX -> GPIO5
+
+UART1
+TX -> GPIO9
+RX -> GPIO10
 ```
 
-  The SPP client has one main event processing functions for BLE event:
+Default serial settings:
 
-```c
-  esp_gap_cb(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t * param);
+```text
+115200 8N1
 ```
 
-  These are some queues and tasks used by SPP application:
+---
 
-  Queues:
+# Board
 
-  * spp_uart_queue       - Uart data messages received from the Uart
 
-  Tasks:
+<p align="center">
+<img src="docs/esp32c3-mini.png" width="500">
+</p>
 
-  * `ble_server_uart_task`            - process Uart
+---
 
-### Packet Structure
+# Architecture
 
-  After the Uart received data, the data will be posted to Uart task. Then, in the UART_DATA event, the raw data may be retrieved. The max length is 120 bytes every time.
-  If you run the BLE SPP demo with two ESP32 chips, the MTU size will be exchanged for 200 bytes after the ble connection is established, so every packet can be send directly.
-  If you only run the ble_spp_server demo, and it was connected by a phone, the MTU size may be less than 123 bytes. In such a case the data will be split into fragments and send in turn.
-  In every packet, we add 4 bytes to indicate that this is a fragment packet. The first two bytes contain "##" if this is a fragment packet, the third byte is the total number of the packets, the fourth byte is the current number of this packet.
-  The phone APP need to check the structure of the packet if it want to communicate with the ble_spp_server demo.
-
-### Sending Data Wirelessly
-
-  The client will be sending WriteNoRsp packets to the server. The server side sends data through notifications. When the Uart receives data, the Uart task places it in the buffer.
-
-### Receiving Data Wirelessly
-
-   The server will receive this data in the BLE_GATT_ACCESS_OP_WRITE_CHR event.
-
-### GATT Server Attribute Table
-
-  characteristic|UUID|Permissions
-  :-:|:-:|:-:
-  SPP_DATA_RECV_CHAR|0xABF1|READ&WRITE_NR
-  SPP_DATA_NOTIFY_CHAR|0xABF2|READ&NOTIFY
-  SPP_COMMAND_CHAR|0xABF3|READ&WRITE_NR
-  SPP_STATUS_CHAR|0xABF4|READ & NOTIFY
-
-This example creates GATT server and advertises data, it then gets connected to a central device.
-
-It takes input from user and performs notify GATT operations against the specified peer.
-
-Note :
-
-* To install the dependency packages needed, please refer to the top level [README file](../../../../README.md#running-test-python-script-pytest).
-
-## How to use example
-
-### Configure the project
-
-```
-idf.py menuconfig
+```text
+                    BLE Central
+                        |
+         +--------------+---------------+
+         |                              |
+   UART0 BLE Service               UART1 BLE Service
+         |                              |
+      UART0                           UART1
+         |                              |
+   External Device A              External Device B
 ```
 
-### Build and Flash
+---
 
-Build the project and flash it to the board, then run monitor tool to view serial output:
+# Data Flow
 
+UART to BLE:
+
+Device -> UART RX -> ESP32 -> BLE Notify -> Client
+
+BLE to UART:
+
+Client -> BLE Write -> ESP32 -> UART TX -> Device
+
+Bidirectional bridge:
+
+UART <=====> BLE
+
+---
+
+# GATT Layout
+
+## UART0 Service
+
+Contains:
+
+- RX characteristic (Write)
+- TX characteristic (Notify)
+
+---
+
+## UART1 Service
+
+Contains:
+
+- RX characteristic (Write)
+- TX characteristic (Notify)
+
+UUIDs defined in:
+
+```text
+ble_spp_server.h
 ```
-idf.py -p PORT flash monitor
+
+---
+
+# Build
+
+Requirements
+
+- ESP-IDF 5.x
+- NimBLE enabled
+
+Build:
+
+```bash
+idf.py set-target esp32c3
+idf.py build
+idf.py flash monitor
 ```
 
-(To exit the serial monitor, type ``Ctrl-]``.)
+---
 
-See the Getting Started Guide for full steps to configure and use ESP-IDF to build projects.
+# Configuration
 
-## Example Output
+Adjust pins and UART settings in:
 
-This is the console output on successful connection:
-
+```text
+app_main()
+ble_spp_uart_init()
 ```
-I (464) NimBLE_SPP_BLE_PRPH: BLE Host Task Started
-GAP procedure initiated: stop advertising.
-Device Address: 7c:df:a1:40:3e:fa
-GAP procedure initiated: advertise; disc_mode=2 adv_channel_map=0 own_addr_type=0 adv_filter_policy=0 adv_itvl_min=0 adv_itvl_max=0
-connection established; status=0 handle=1 our_ota_addr_type=0 our_ota_addr=7c:df:a1:40:3e:fa our_id_addr_type=0 our_id_addr=7c:df:a1:40:3e:fa peer_ota_addr_type=0 peer_ota_addr=7c:df:a1:c2:19:92 peer_id_addr_type=0 peer_id_addr=7c:df:a1:c2:19:92 conn_itvl=40 conn_latency=0 supervision_timeout=256 encrypted=0 authenticated=0 bonded=0
 
-I (6924) NimBLE_SPP_BLE_PRPH: Data received in write event,conn_handle = 1,attr_handle = 11
-1b5b41I
-(10824) NimBLE_SPP_BLE_PRPH: Notification sent successfully
 
+Default device name:
+
+```text
+UART-to-BLE-Bridge
 ```
+
+# Performance
+
+Implemented:
+
+- MTU-aware chunking
+- Event-driven UART tasks
+- Connection-aware routing
+- BLE notification pipeline
+
+Planned optimizations:
+
+- Add security layers
+- Add light sleep mode interruption 
+- 2M PHY tuning
+- Throughput benchmarking
+- Add service for UART baud rate change on runtime. 
+
+Target:
+
+```text
+~200 KB/s BLE throughput
+```
+
+(under tuned conditions)
+
+---
+
+# Python TCP Bridge
+
+Companion tools:
+
+```text
+tools/
+```
+
+Provides:
+
+- Auto reconnecting BLE client
+- TCP sockets mapped to each UART
+- Serial-over-TCP through BLE
+
+See:
+
+[tools/README.md](tools/README.md)
+
+
+---
+
+# Repository Layout
+
+```text
+.
+├── main/
+├── tools/
+├── docs/
+└── README.md
+```
+
+---
+
+# Roadmap
+
+- [ ] Extended multi-client support
+- [ ] Framed packet mode
+- [ ] Performance tuning
+
+---
+
+# License
+
+MIT

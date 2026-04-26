@@ -1,37 +1,14 @@
-#include "driver/gpio.h"
-#include "esp_log.h"
-#include "esp_peripheral.h"
-#include "esp_timer.h"
-#include "freertos/idf_additions.h"
-#include "freertos/projdefs.h"
-#include "hal/gpio_types.h"
-#include "hal/uart_types.h"
-#include "host/ble_gap.h"
-#include "host/ble_hs_adv.h"
-#include "nvs_flash.h"
-#include "task/ble/ble.h"
-#include "task/led/led.h"
-/* BLE */
-#include "ble_spp_server.h"
-#include "driver/uart.h"
 #include "host/ble_hs.h"
-#include "host/util/util.h"
-#include "nimble/nimble_port.h"
-#include "nimble/nimble_port_freertos.h"
-#include "services/gap/ble_svc_gap.h"
-#include "services/gatt/ble_svc_gatt.h"
-#include "soc/gpio_num.h"
+#include "include.h"
 #include <stdbool.h>
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/types.h>
 
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
 int gatt_svr_register(void);
-static connectionsubscription_t
-    subscription[CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1];
+
+bool uart0_notify = 0;
+bool uart1_notify = 0;
+static uint16_t active_conn = BLE_HS_CONN_HANDLE_NONE;
 
 u_int16_t ble_spp_tx_handle_uart_1;
 u_int16_t ble_spp_rx_handle_uart_1;
@@ -149,7 +126,6 @@ static void ble_spp_server_advertise(void) {
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
   struct ble_gap_conn_desc desc;
   int rc;
-  uint16_t conn;
   switch (event->type) {
   case BLE_GAP_EVENT_LINK_ESTAB:
     MODLOG_DFLT(INFO, "connection %s; status=%d ",
@@ -178,9 +154,9 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     ble_spp_server_print_conn_desc(&event->disconnect.conn);
     MODLOG_DFLT(INFO, "\n");
 
-    conn = event->disconnect.conn.conn_handle;
-    subscription[conn].uart0_notify = false;
-    subscription[conn].uart1_notify = false;
+    active_conn = BLE_HS_CONN_HANDLE_NONE;
+    uart0_notify = false;
+    uart1_notify = false;
 
     ble_spp_server_advertise();
     return 0;
@@ -214,12 +190,12 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
                 event->subscribe.reason, event->subscribe.prev_notify,
                 event->subscribe.cur_notify, event->subscribe.prev_indicate,
                 event->subscribe.cur_indicate);
-    conn = event->subscribe.conn_handle;
+    active_conn = event->subscribe.conn_handle;
 
     if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_0) {
-      subscription[conn].uart0_notify = event->subscribe.cur_notify;
+      uart0_notify = event->subscribe.cur_notify;
     } else if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_1) {
-      subscription[conn].uart1_notify = event->subscribe.cur_notify;
+      uart1_notify = event->subscribe.cur_notify;
     }
     return 0;
 
@@ -420,56 +396,50 @@ void ble_server_uart_task(void *pvParameters) {
       continue;
 
     int len = uart_read_bytes(connection->Uart_port, data,
-                              MIN(event.size, sizeof(data)), pdMS_TO_TICKS(20));
-    ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
+                              MIN(event.size, 512), pdMS_TO_TICKS(20));
 
     if (len <= 0)
       continue;
 
+    ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
     ESP_LOGI(TAG, "UART%d -> BLE %d bytes", connection->Uart_port, len);
 
-    for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; conn++) {
-      struct ble_gap_conn_desc desc;
+    bool subscribed = false;
+    uint16_t tx_handle = 0;
 
-      if (ble_gap_conn_find(conn, &desc))
-        continue;
+    if (connection->Uart_port == UART_NUM_0) {
+      subscribed = uart0_notify;
 
-      bool subscribed = false;
-      uint16_t tx_handle = 0;
+      tx_handle = ble_spp_tx_handle_uart_0;
+    } else {
+      subscribed = uart1_notify;
 
-      if (connection->Uart_port == UART_NUM_0) {
-        subscribed = subscription[conn].uart0_notify;
+      tx_handle = ble_spp_tx_handle_uart_1;
+    }
 
-        tx_handle = ble_spp_tx_handle_uart_0;
-      } else {
-        subscribed = subscription[conn].uart1_notify;
+    if (!subscribed && active_conn == BLE_HS_CONN_HANDLE_NONE)
+      continue;
 
-        tx_handle = ble_spp_tx_handle_uart_1;
-      }
 
-      if (!subscribed)
-        continue;
+    uint16_t mtu = ble_att_mtu(active_conn);
 
-      uint16_t mtu = ble_att_mtu(conn);
+    int payload =
+        (mtu > BLE_HEADER_SIZE) ? mtu - BLE_HEADER_SIZE : BLE_DEFAULT_MTU;
 
-      int payload =
-          (mtu > BLE_HEADER_SIZE) ? mtu - BLE_HEADER_SIZE : BLE_DEFAULT_MTU;
+    for (int off = 0; off < len; off += payload) {
+      int chunk = MIN(payload, len - off);
 
-      for (int off = 0; off < len; off += payload) {
-        int chunk = MIN(payload, len - off);
+      struct os_mbuf *om = ble_hs_mbuf_from_flat(data + off, chunk);
+      int rc = ble_gatts_notify_custom(active_conn, tx_handle, om);
 
-        struct os_mbuf *om = ble_hs_mbuf_from_flat(data + off, chunk);
-        int rc = ble_gatts_notify_custom(conn, tx_handle, om);
+      if (rc) {
+        ESP_LOGW(TAG, "notify fail %d", rc);
 
-        if (rc) {
-          ESP_LOGW(TAG, "notify fail %d", rc);
-
-          os_mbuf_free_chain(om);
-        }
+        os_mbuf_free_chain(om);
       }
     }
-    taskYIELD();
   }
+  taskYIELD();
 }
 
 void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
@@ -497,7 +467,6 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
 
 void app_main(void) {
   int rc;
-
   xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
   Port0.Uart_port = UART_NUM_0;
   Port0.tx = GPIO_NUM_9;
@@ -521,10 +490,8 @@ void app_main(void) {
     return;
   }
 
-  for (int i = 0; i < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; i++) {
-    subscription[i].uart0_notify = false;
-    subscription[i].uart1_notify = false;
-  }
+  uart0_notify = false;
+  uart1_notify = false;
 
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
@@ -555,6 +522,8 @@ void app_main(void) {
   assert(rc == 0);
   /* XXX Need to have template for store */
   ble_store_config_init();
+  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, BLE_DEFAULT_POWER);
+  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_ADVERTISING_POWER);
   nimble_port_freertos_init(ble_spp_server_host_task);
   ble_att_set_preferred_mtu(BLE_PREFERRED_MTU);
 }

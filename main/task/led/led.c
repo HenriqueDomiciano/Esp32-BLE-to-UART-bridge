@@ -27,7 +27,6 @@ void led_task(void *pvParameters) {
   uint8_t number_of_connections;
   gpio_reset_pin(state.pin);
   gpio_set_direction(state.pin, GPIO_MODE_OUTPUT_OD);
-
   int64_t starting_time = esp_timer_get_time();
   int64_t time_difference;
   int64_t current_time;
@@ -43,14 +42,7 @@ void led_task(void *pvParameters) {
       } else {
         *led_state = CONNECTED;
       }
-      for (int i = 0; i < number_of_connections; i++) {
-        gpio_set_level(state.pin, 1);
-        vTaskDelay(pdMS_TO_TICKS(300));
-        gpio_set_level(state.pin, 0);
-        vTaskDelay(pdMS_TO_TICKS(300));
-      }
     }
-
     state = get_current_ble_state_config(led_state);
     gpio_set_level(state.pin, 1);
     vTaskDelay(pdMS_TO_TICKS(state.time_on_ms));
