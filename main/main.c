@@ -6,7 +6,10 @@
 #include "freertos/projdefs.h"
 #include "hal/gpio_types.h"
 #include "hal/uart_types.h"
+#include "host/ble_gap.h"
+#include "host/ble_hs_adv.h"
 #include "nvs_flash.h"
+#include "task/ble/ble.h"
 #include "task/led/led.h"
 /* BLE */
 #include "ble_spp_server.h"
@@ -36,7 +39,7 @@ u_int16_t ble_spp_tx_handle_uart_0;
 u_int16_t ble_spp_rx_handle_uart_0;
 
 static BleState_e led_state = DISCONNECTED;
-  
+
 static UartConnection Port0 = {0};
 static UartConnection Port1 = {0};
 
@@ -159,9 +162,14 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     }
     MODLOG_DFLT(INFO, "\n");
     if (event->link_estab.status != 0 || CONFIG_BT_NIMBLE_MAX_CONNECTIONS > 1) {
-      /* Connection failed or if multiple connection allowed; resume
-       * advertising. */
-      ble_spp_server_advertise();
+      if (get_number_of_connections() == CONFIG_BT_NIMBLE_MAX_CONNECTIONS) {
+        int err_code_gap_adv = ble_gap_adv_stop();
+        if (err_code_gap_adv != 0) {
+          ESP_LOGI("BLE", "Unable to stop advertising");
+        }
+      } else {
+        ble_spp_server_advertise();
+      }
     }
     return 0;
 
@@ -302,7 +310,7 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                      BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_1),
                  .access_cb = ble_svc_gatt_handler,
                  .val_handle = &ble_spp_rx_handle_uart_1,
-                 .flags = BLE_GATT_CHR_F_WRITE},
+                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
 
                     .uuid =
@@ -326,7 +334,7 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                      BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_0),
                  .access_cb = ble_svc_gatt_handler,
                  .val_handle = &ble_spp_rx_handle_uart_0,
-                 .flags = BLE_GATT_CHR_F_WRITE},
+                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
 
                     .uuid =
@@ -394,97 +402,73 @@ int gatt_svr_init(void) {
 }
 
 void ble_server_uart_task(void *pvParameters) {
-  MODLOG_DFLT(INFO, "BLE server UART_task started\n");
 
-  int rc;
+  char TAG[] = "RX -> BLE Task";
+
   UartConnection *connection = (UartConnection *)pvParameters;
+
   uart_event_t event;
 
-  MODLOG_DFLT(INFO, "Task got queue: %p\n", connection->Uart_queue_handle);
+  uint8_t data[512];
 
-  for (;;) {
-    if (xQueueReceive(connection->Uart_queue_handle, &event, portMAX_DELAY)) {
+  while (1) {
 
-      if (event.type == UART_DATA && event.size > 0) {
+    if (!xQueueReceive(connection->Uart_queue_handle, &event, portMAX_DELAY))
+      continue;
 
-        uint8_t *data = malloc(event.size);
-        if (!data) {
-          ESP_LOGE("UART TASK", "Malloc failed");
-          continue;
+    if (event.type != UART_DATA)
+      continue;
+
+    int len = uart_read_bytes(connection->Uart_port, data,
+                              MIN(event.size, sizeof(data)), pdMS_TO_TICKS(20));
+    ESP_LOG_BUFFER_HEXDUMP(TAG, data, len, ESP_LOG_INFO);
+
+    if (len <= 0)
+      continue;
+
+    ESP_LOGI(TAG, "UART%d -> BLE %d bytes", connection->Uart_port, len);
+
+    for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; conn++) {
+      struct ble_gap_conn_desc desc;
+
+      if (ble_gap_conn_find(conn, &desc))
+        continue;
+
+      bool subscribed = false;
+      uint16_t tx_handle = 0;
+
+      if (connection->Uart_port == UART_NUM_0) {
+        subscribed = subscription[conn].uart0_notify;
+
+        tx_handle = ble_spp_tx_handle_uart_0;
+      } else {
+        subscribed = subscription[conn].uart1_notify;
+
+        tx_handle = ble_spp_tx_handle_uart_1;
+      }
+
+      if (!subscribed)
+        continue;
+
+      uint16_t mtu = ble_att_mtu(conn);
+
+      int payload =
+          (mtu > BLE_HEADER_SIZE) ? mtu - BLE_HEADER_SIZE : BLE_DEFAULT_MTU;
+
+      for (int off = 0; off < len; off += payload) {
+        int chunk = MIN(payload, len - off);
+
+        struct os_mbuf *om = ble_hs_mbuf_from_flat(data + off, chunk);
+        int rc = ble_gatts_notify_custom(conn, tx_handle, om);
+
+        if (rc) {
+          ESP_LOGW(TAG, "notify fail %d", rc);
+
+          os_mbuf_free_chain(om);
         }
-        ESP_LOGI("UART TASK", "event size : %d", event.size);
-        uart_read_bytes(connection->Uart_port, data, event.size, portMAX_DELAY);
-        ESP_LOGI("UART TASK", "Left");
-        // 🔥 Process buffer ONCE (not per connection)
-        uint16_t offset = 0;
-
-        while (offset < event.size) {
-
-          // --- Find a valid MTU (use first valid connection) ---
-          uint16_t mtu = 23; // default fallback
-
-          for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS; conn++) {
-            struct ble_gap_conn_desc desc;
-            if (ble_gap_conn_find(conn, &desc) == 0) {
-              uint16_t m = ble_att_mtu(conn);
-              if (m > 3) {
-                mtu = m;
-                break;
-              }
-            }
-          }
-
-          uint16_t max_p = (mtu > 3) ? (mtu - 3) : 20;
-
-          uint16_t chunk =
-              (event.size - offset > max_p) ? max_p : (event.size - offset);
-
-          for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1;
-               conn++) {
-
-            ESP_LOGI("UART TASK", "UART CONN %d %d %d", conn,
-                     subscription[conn].uart0_notify,
-                     subscription[conn].uart1_notify);
-            ESP_LOGI("UART TASK", "Entered UART 0 Task conn %d ",
-                     subscription[conn].uart0_notify);
-            ESP_LOGI("UART TASK", "Entered UART 1 Task conn %d ",
-                     subscription[conn].uart1_notify);
-
-            if (connection->Uart_port == UART_NUM_0 &&
-                subscription[conn].uart0_notify) {
-              struct os_mbuf *om0 = ble_hs_mbuf_from_flat(data + offset, chunk);
-
-              rc = ble_gatts_notify_custom(conn, ble_spp_tx_handle_uart_0, om0);
-
-              if (rc != 0) {
-                ESP_LOGI("UART TASK", "UART0 notify failed rc=%d", rc);
-                os_mbuf_free_chain(om0);
-              }
-            }
-
-            if (connection->Uart_port == UART_NUM_1 &&
-                subscription[conn].uart1_notify) {
-
-              ESP_LOGI("UART TASK", "Entered UART 1 Task conn %s data ", data);
-              struct os_mbuf *om1 = ble_hs_mbuf_from_flat(data + offset, chunk);
-
-              rc = ble_gatts_notify_custom(conn, ble_spp_tx_handle_uart_1, om1);
-
-              if (rc != 0) {
-                ESP_LOGI("UART TASK", "UART1 notify failed rc=%d", rc);
-                os_mbuf_free_chain(om1);
-              }
-            }
-          }
-
-          offset += chunk;
-
-          vTaskDelay(1);
-        }
-
-        free(data);
       }
     }
+    taskYIELD();
   }
 }
 
@@ -498,7 +482,7 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
       .rx_flow_ctrl_thresh = 122,
       .source_clk = UART_SCLK_DEFAULT,
   };
-  uart_driver_install(uart_connection_attributes->Uart_port, 4096, 8192, 10,
+  uart_driver_install(uart_connection_attributes->Uart_port, 16384, 16384, 10,
                       &uart_connection_attributes->Uart_queue_handle, 0);
   MODLOG_DFLT(INFO, "Queue addr: %p\n",
               uart_connection_attributes->Uart_queue_handle);
@@ -506,24 +490,22 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
   uart_set_pin(uart_connection_attributes->Uart_port,
                uart_connection_attributes->tx, uart_connection_attributes->rx,
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  gpio_pullup_en(uart_connection_attributes->rx);
   xTaskCreate(ble_server_uart_task, "uTask", 4096,
-              (void *)uart_connection_attributes, 8, NULL);
+              (void *)uart_connection_attributes, 5, NULL);
 }
 
 void app_main(void) {
   int rc;
 
-  
-
-  xTaskCreate(led_task, "uTaskBlink", 2048, (void*)&led_state, 2, NULL);
-
+  xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
   Port0.Uart_port = UART_NUM_0;
-  Port0.tx = GPIO_NUM_10;
-  Port0.rx = GPIO_NUM_11;
+  Port0.tx = GPIO_NUM_9;
+  Port0.rx = GPIO_NUM_10;
 
   Port1.Uart_port = UART_NUM_1;
-  Port1.tx = GPIO_NUM_1;
-  Port1.rx = GPIO_NUM_2;
+  Port1.tx = GPIO_NUM_4;
+  Port1.rx = GPIO_NUM_5;
 
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
@@ -546,7 +528,6 @@ void app_main(void) {
 
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
-
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
   ble_hs_cfg.sync_cb = ble_spp_server_on_sync;
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
@@ -570,9 +551,10 @@ void app_main(void) {
   rc = gatt_svr_init();
   assert(rc == 0);
   /* Set the default device name. */
-  rc = ble_svc_gap_device_name_set("UART-to-BLE-Bridge");
+  rc = ble_svc_gap_device_name_set(BLE_ADVERTISING_NAME);
   assert(rc == 0);
   /* XXX Need to have template for store */
   ble_store_config_init();
   nimble_port_freertos_init(ble_spp_server_host_task);
+  ble_att_set_preferred_mtu(BLE_PREFERRED_MTU);
 }
