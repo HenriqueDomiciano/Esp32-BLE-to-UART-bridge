@@ -324,7 +324,8 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                     .access_cb = ble_svc_gatt_handler,
                     .val_handle = &ble_spp_handle_uart_1_baud_rate,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
-                }},
+                },
+              {0}},
     },
     {
         /*** Service: UART_0 SPP */
@@ -352,7 +353,8 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                     .access_cb = ble_svc_gatt_handler,
                     .val_handle = &ble_spp_handle_uart_0_baud_rate,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
-                }},
+                },
+              {0}},
     },
 
     {0}, /* No more services. */
