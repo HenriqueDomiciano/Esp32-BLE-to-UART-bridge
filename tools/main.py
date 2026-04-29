@@ -25,6 +25,16 @@ def parse_args() -> argparse.Namespace:
         default="INFO",
         help="Set logging level"
     )
+    parser.add_argument(
+        "--tcp-port-uart-0", 
+        type=int,
+        default=2222        
+    )
+    parser.add_argument(
+        "--tcp-port-uart-1", 
+        type=int,
+        default=2223        
+    )
 
     return parser.parse_args()
 
@@ -46,16 +56,16 @@ async def main():
 
     CHANNELS: List[ChannelConfiguration] = [
         ChannelConfiguration(
-            name="uart0",
+            name="uart1",
             notify_uuid="0000abf2-0000-1000-8000-00805f9b34fb",
             write_uuid="0000abf1-0000-1000-8000-00805f9b34fb",
-            tcp_port=2222,
+            tcp_port=args.tcp_port_uart_1,
         ),
         ChannelConfiguration(
-            name="uart1",
+            name="uart0",
             notify_uuid="0000abe2-0000-1000-8000-00805f9b34fb",
             write_uuid="0000abe1-0000-1000-8000-00805f9b34fb",
-            tcp_port=2223,
+            tcp_port=args.tcp_port_uart_0,
         ),
     ]
     CHANNEL_RUNTIME: List[ChannelRuntime] = [ChannelRuntime(ch) for ch in CHANNELS]

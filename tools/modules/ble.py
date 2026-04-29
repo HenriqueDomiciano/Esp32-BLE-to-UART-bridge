@@ -27,7 +27,7 @@ async def ble_write_worker(client: BleakClient, channel: ChannelRuntime):
         data = await channel.tx_queue.get()
 
         try:
-            logger.info(f"{channel.config.name} TX {data!r}")
+            logger.info(f"{channel.config.name} TX {data.hex()}")
 
             await client.write_gatt_char(channel.config.write_uuid, data, response=True)
 
@@ -62,7 +62,7 @@ async def ble_manager(channels: List[ChannelRuntime]) -> None:
                     logger.info(f"Subscribed {channel.config.name}")
 
                 reconnect_delay = 2
-                await asyncio.gather(*tasks)
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         except Exception as ex:
             logger.info(f"BLE disconnected/error: {ex}")

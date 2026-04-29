@@ -37,8 +37,8 @@ async def handle_tcp_client(
 
     try:
         while True:
-            data: bytes = await reader.readline()
-            logger.info(f"TCP RX {data!r}")
+            data: bytes = await reader.read(4096)
+            logger.info(f"TCP RX {data.hex()}")
 
             if not data:
                 break
