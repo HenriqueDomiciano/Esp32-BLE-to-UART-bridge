@@ -22,14 +22,12 @@ jobs:
           path: '.'
           command: |
             idf.py build
-            cd build
-            esptool.py --chip esp32c3 merge_bin -o release_firmware.bin @flash_args
-            ls -R 
+            idf.py merge-bin --output esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: release_firmware.bin
+          files: esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
           generate_release_notes: true
           fail_on_unmatched_files: true
 
