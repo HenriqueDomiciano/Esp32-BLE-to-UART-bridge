@@ -28,7 +28,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
+          files: build/esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
           generate_release_notes: true
           fail_on_unmatched_files: true
 
