@@ -23,6 +23,7 @@ jobs:
           command: |
             idf.py build
             idf.py merge-bin --output esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
+            ls
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
