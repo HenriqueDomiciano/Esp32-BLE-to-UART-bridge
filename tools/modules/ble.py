@@ -3,7 +3,6 @@ from typing import List, Callable
 from modules.ble_tcp_dataclasses import ChannelRuntime
 import logging
 from bleak import BleakClient, BleakScanner
-from modules.constants import ADDRESS
 from modules.tcp import forward_to_tcp
 from bleak.backends.characteristic import (
     BleakGATTCharacteristic,
@@ -33,16 +32,17 @@ async def ble_write_worker(client: BleakClient, channel: ChannelRuntime):
 
         except Exception as ex:
             logger.error(f"{channel.config.name} write failed {ex}")
+            raise ex
 
 
-async def ble_manager(channels: List[ChannelRuntime]) -> None:
+async def ble_manager(channels: List[ChannelRuntime],address:str) -> None:
 
     reconnect_delay: int = 2
     while True:
         try:
             logger.info("Scanning for BLE device...")
             device = await BleakScanner.find_device_by_address(
-                ADDRESS,
+                address,
                 timeout=10,
             )
 

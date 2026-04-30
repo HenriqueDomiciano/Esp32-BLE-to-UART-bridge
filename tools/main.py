@@ -2,6 +2,7 @@ import argparse
 from typing import List
 from modules.ble_tcp_dataclasses import ChannelConfiguration, ChannelRuntime
 import asyncio
+from modules.constants import ADDRESS
 from modules.tcp import start_channel_server
 from modules.ble import ble_manager
 import logging
@@ -35,6 +36,11 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=2223        
     )
+    parser.add_argument(
+        "--mac",
+        type=str,
+        default=ADDRESS
+    )
 
     return parser.parse_args()
 
@@ -54,7 +60,7 @@ async def main():
     args = parse_args()
     setup_logging(args.log_level)
 
-    CHANNELS: List[ChannelConfiguration] = [
+    channels: List[ChannelConfiguration] = [
         ChannelConfiguration(
             name="uart1",
             notify_uuid="0000abf2-0000-1000-8000-00805f9b34fb",
@@ -68,17 +74,17 @@ async def main():
             tcp_port=args.tcp_port_uart_0,
         ),
     ]
-    CHANNEL_RUNTIME: List[ChannelRuntime] = [ChannelRuntime(ch) for ch in CHANNELS]
+    channel_runtime: List[ChannelRuntime] = [ChannelRuntime(ch) for ch in channels]
 
     tcp_tasks = [
         asyncio.create_task(
             start_channel_server(ch)
         )
-        for ch in CHANNEL_RUNTIME
+        for ch in channel_runtime
     ]
 
     ble_task = asyncio.create_task(
-        ble_manager(CHANNEL_RUNTIME)
+        ble_manager(channel_runtime,args.mac)
     )
 
     await asyncio.gather(

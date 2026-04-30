@@ -33,7 +33,7 @@ Each UART channel is exposed as its own TCP endpoint.
 
 # Configuration
 
-Edit:
+The default values of the setups stays at the file:
 
 ```text
 configuration.py
@@ -42,25 +42,18 @@ configuration.py
 Configure:
 
 - BLE MAC address
-- Channel definitions
 - TCP listening ports
 
 Example:
 
 ```python
 ADDRESS = "AA:BB:CC:DD:EE:FF"
-
-CHANNELS = [
-    {
-        "name": "UART0",
-        "tcp_port": 7000,
-    },
-    {
-        "name": "UART1",
-        "tcp_port": 7001,
-    }
-]
+TCP_PORT_UART0 = 2223
+TCP_PORT_UART1 = 2222
+DEFAULT_IP_ADDRESS = "127.0.0.1"
 ```
+
+If needed you can pass those values as paramters of the command.
 
 Service and characteristic UUID mappings are handled internally by the tool modules.
 
