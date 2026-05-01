@@ -66,3 +66,5 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+
+sdkconfig

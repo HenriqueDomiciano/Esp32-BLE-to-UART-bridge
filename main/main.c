@@ -3,9 +3,15 @@
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "include.h"
+#include "soc/gpio_num.h"
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
+
+#if CONFIG_IDF_TARGET_ESP32S3     
+#include "driver/usb_serial_jtag.h"
+#include "esp_vfs_usb_serial_jtag.h"
+#endif
 
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
@@ -14,6 +20,13 @@ int gatt_svr_register(void);
 bool uart0_notify = 0;
 bool uart1_notify = 0;
 static uint16_t active_conn = BLE_HS_CONN_HANDLE_NONE;
+
+#if CONFIG_IDF_TARGET_ESP32S3
+bool uart2_notify = 0;
+u_int16_t ble_spp_tx_handle_uart_2;
+u_int16_t ble_spp_rx_handle_uart_2;
+u_int16_t ble_spp_handle_uart_2_baud_rate;
+#endif
 
 u_int16_t ble_spp_tx_handle_uart_1;
 u_int16_t ble_spp_rx_handle_uart_1;
@@ -27,6 +40,10 @@ static BleState_e led_state = DISCONNECTED;
 
 static UartConnection Port0 = {0};
 static UartConnection Port1 = {0};
+
+#if CONFIG_IDF_TARGET_ESP32S3
+static UartConnection Port2 = {0};
+#endif
 
 void ble_store_config_init(void);
 
@@ -205,6 +222,11 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
     } else if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_1) {
       uart1_notify = event->subscribe.cur_notify;
     }
+#if CONFIG_IDF_TARGET_ESP32S3
+    else if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_2) {
+      uart2_notify = event->subscribe.cur_notify;
+    }
+#endif
     return 0;
 
   default:
@@ -265,25 +287,33 @@ static int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
       if (attr_handle == ble_spp_rx_handle_uart_0) {
         uart_write_bytes(UART_NUM_0, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART0\n", total_len);
-      } 
-      else if (attr_handle == ble_spp_rx_handle_uart_1) {
+      } else if (attr_handle == ble_spp_rx_handle_uart_1) {
         uart_write_bytes(UART_NUM_1, temp_buf, total_len);
         MODLOG_DFLT(INFO, "Sent %d bytes to UART1\n", total_len);
       }
-      else if (attr_handle == ble_spp_handle_uart_0_baud_rate) 
-      {
-          uint32_t new_uart0_baud_rate; 
-          memcpy(&new_uart0_baud_rate, temp_buf, sizeof(new_uart0_baud_rate));
-          uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);  
+#if CONFIG_IDF_TARGET_ESP32S3
+      else if (attr_handle == ble_spp_rx_handle_uart_2) {
+        uart_write_bytes(UART_NUM_2, temp_buf, total_len);
+        MODLOG_DFLT(INFO, "Sent %d bytes to UART2\n", total_len);
       }
-      else if (attr_handle == ble_spp_handle_uart_1_baud_rate) 
-      {
-        
-          uint32_t new_uart1_baud_rate; 
-          memcpy(&new_uart1_baud_rate, temp_buf, sizeof(new_uart1_baud_rate));
-          uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);  
-      }
+#endif
+      else if (attr_handle == ble_spp_handle_uart_0_baud_rate) {
+        uint32_t new_uart0_baud_rate;
+        memcpy(&new_uart0_baud_rate, temp_buf, sizeof(new_uart0_baud_rate));
+        uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);
+      } else if (attr_handle == ble_spp_handle_uart_1_baud_rate) {
 
+        uint32_t new_uart1_baud_rate;
+        memcpy(&new_uart1_baud_rate, temp_buf, sizeof(new_uart1_baud_rate));
+        uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);
+      }
+#if CONFIG_IDF_TARGET_ESP32S3
+      else if (attr_handle == ble_spp_handle_uart_2_baud_rate) {
+        uint32_t new_uart2_baud_rate;
+        memcpy(&new_uart2_baud_rate, temp_buf, sizeof(new_uart2_baud_rate));
+        uart_set_baudrate(UART_NUM_2, new_uart2_baud_rate);
+      }
+#endif
 
       free(temp_buf);
     }
@@ -311,21 +341,20 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                  .val_handle = &ble_spp_rx_handle_uart_1,
                  .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
-
                     .uuid =
                         BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_READ_UART_1),
                     .access_cb = ble_svc_gatt_handler,
                     .val_handle = &ble_spp_tx_handle_uart_1,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
-                { 
-                    .uuid =
-                        BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_UART_1_BAUD_RATE),
+                {
+                    .uuid = BLE_UUID16_DECLARE(
+                        BLE_SVC_SPP_CHR_UUID16_UART_1_BAUD_RATE),
                     .access_cb = ble_svc_gatt_handler,
                     .val_handle = &ble_spp_handle_uart_1_baud_rate,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 },
-              {0}},
+                {0}},
     },
     {
         /*** Service: UART_0 SPP */
@@ -347,16 +376,46 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                     .val_handle = &ble_spp_tx_handle_uart_0,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
-                { 
-                    .uuid =
-                        BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_UART_0_BAUD_RATE),
+                {
+                    .uuid = BLE_UUID16_DECLARE(
+                        BLE_SVC_SPP_CHR_UUID16_UART_0_BAUD_RATE),
                     .access_cb = ble_svc_gatt_handler,
                     .val_handle = &ble_spp_handle_uart_0_baud_rate,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 },
-              {0}},
+                {0}},
     },
+#if CONFIG_IDF_TARGET_ESP32S3
+    {
+        /*** Service: UART_2 SPP */
+        .type = BLE_GATT_SVC_TYPE_PRIMARY,
+        .uuid = BLE_UUID16_DECLARE(BLE_SVC_SPP_UUID16_THIRD),
+        .characteristics =
+            (struct ble_gatt_chr_def[]){
+                {/* Support SPP service */
+                 .uuid =
+                     BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_2),
+                 .access_cb = ble_svc_gatt_handler,
+                 .val_handle = &ble_spp_rx_handle_uart_2,
+                 .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
+                {
 
+                    .uuid =
+                        BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_READ_UART_2),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_spp_tx_handle_uart_2,
+                    .flags = BLE_GATT_CHR_F_NOTIFY,
+                },
+                {
+                    .uuid = BLE_UUID16_DECLARE(
+                        BLE_SVC_SPP_CHR_UUID16_UART_2_BAUD_RATE),
+                    .access_cb = ble_svc_gatt_handler,
+                    .val_handle = &ble_spp_handle_uart_2_baud_rate,
+                    .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
+                },
+                {0}},
+    },
+#endif
     {0}, /* No more services. */
 };
 
@@ -428,8 +487,8 @@ void ble_server_uart_task(void *pvParameters) {
     if (event.type != UART_DATA)
       continue;
 
-    int len = uart_read_bytes(connection->Uart_port, data,
-                              MIN(event.size, 512), pdMS_TO_TICKS(20));
+    int len = uart_read_bytes(connection->Uart_port, data, MIN(event.size, 512),
+                              pdMS_TO_TICKS(20));
 
     if (len <= 0)
       continue;
@@ -444,15 +503,20 @@ void ble_server_uart_task(void *pvParameters) {
       subscribed = uart0_notify;
 
       tx_handle = ble_spp_tx_handle_uart_0;
-    } else {
+    } 
+    else if (connection->Uart_port == UART_NUM_1) {
       subscribed = uart1_notify;
 
       tx_handle = ble_spp_tx_handle_uart_1;
     }
-
+#if CONFIG_IDF_TARGET_ESP32S3
+    else if (connection->Uart_port == UART_NUM_2) {
+      subscribed = uart2_notify;
+      tx_handle = ble_spp_tx_handle_uart_2;
+    }
+#endif
     if (!subscribed && active_conn == BLE_HS_CONN_HANDLE_NONE)
       continue;
-
 
     uint16_t mtu = ble_att_mtu(active_conn);
 
@@ -501,21 +565,43 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
 void app_main(void) {
   int rc;
   xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
-  Port0.Uart_port = UART_NUM_0;
+    
+#if CONFIG_IDF_TARGET_ESP32S3
+    usb_serial_jtag_driver_config_t usb_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
+    usb_serial_jtag_driver_install(&usb_config);
+    esp_vfs_dev_usb_serial_jtag_register();
+
+    // 2. Um pequeno delay para o driver USB estabilizar antes dos logs pesados
+    vTaskDelay(pdMS_TO_TICKS(100));  
+#endif
+
+esp_err_t ret = nvs_flash_init();
+if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+    ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+  ESP_ERROR_CHECK(nvs_flash_erase());
+  ret = nvs_flash_init();
+}
+ESP_ERROR_CHECK(ret);
+
+
+Port0.Uart_port = UART_NUM_0;
+#if CONFIG_IDF_TARGET_ESP32S3
+  Port0.tx = GPIO_NUM_17;
+  Port0.rx = GPIO_NUM_18;
+#else
   Port0.tx = GPIO_NUM_9;
   Port0.rx = GPIO_NUM_10;
-
+#endif
   Port1.Uart_port = UART_NUM_1;
   Port1.tx = GPIO_NUM_4;
   Port1.rx = GPIO_NUM_5;
 
-  esp_err_t ret = nvs_flash_init();
-  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    ESP_ERROR_CHECK(nvs_flash_erase());
-    ret = nvs_flash_init();
-  }
-  ESP_ERROR_CHECK(ret);
+#if CONFIG_IDF_TARGET_ESP32S3
+  Port2.Uart_port = UART_NUM_2;
+  Port2.tx = GPIO_NUM_16;
+  Port2.rx = GPIO_NUM_15;
+#endif
+
 
   ret = nimble_port_init();
   if (ret != ESP_OK) {
@@ -528,6 +614,10 @@ void app_main(void) {
 
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
+#if CONFIG_IDF_TARGET_ESP32S3
+  uart2_notify = false;
+  ble_spp_uart_init(&Port2);
+#endif
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
   ble_hs_cfg.sync_cb = ble_spp_server_on_sync;
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;

@@ -8,6 +8,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target: [esp32c3, esp32s3]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -18,19 +23,34 @@ jobs:
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.4.1
-          target: esp32-c3 
+          target: ${{ matrix.target }}
           path: '.'
           command: |
+            idf.py set-target ${{ matrix.target }}
+            idf.py defconfig
             idf.py build
-            idf.py merge-bin --output esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
-            ls
+            idf.py merge-bin --output esp-ble-uart-bridge-${{ matrix.target }}-${{ github.ref_name }}.bin
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.target }}
+          path: build/esp-ble-uart-bridge-${{ matrix.target }}-${{ github.ref_name }}.bin
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build/esp-32-ble-uart-bridge-${{ github.ref_name }}.bin
+          files: |
+            **/*.bin
           generate_release_notes: true
           fail_on_unmatched_files: true
-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

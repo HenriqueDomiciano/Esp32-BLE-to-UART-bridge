@@ -4,8 +4,13 @@
 #include "freertos/idf_additions.h"
 #include "freertos/projdefs.h"
 #include "../ble/ble.h"
-
+#include "soc/gpio_num.h"
+ 
+#if CONFIG_IDF_TARGET_ESP32S3     
+static blinkParameters_t default_blink_parameter = {GPIO_NUM_47, 50, 50};
+#else
 static blinkParameters_t default_blink_parameter = {GPIO_NUM_8, 50, 50};
+#endif
 
 blinkParameters_t get_current_ble_state_config(BleState_e *current_state) {
   BleState_e state = (BleState_e)*current_state;
@@ -25,7 +30,9 @@ void led_task(void *pvParameters) {
   BleState_e *led_state = (BleState_e*)pvParameters; 
   blinkParameters_t state = get_current_ble_state_config(led_state);
   uint8_t number_of_connections;
+  #if !CONFIG_IDF_TARGET_ESP32S3     
   gpio_reset_pin(state.pin);
+  #endif
   gpio_set_direction(state.pin, GPIO_MODE_OUTPUT_OD);
   int64_t starting_time = esp_timer_get_time();
   int64_t time_difference;

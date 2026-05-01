@@ -4,6 +4,7 @@
 
 
 #include "driver/gpio.h"
+#include <assert.h>
 #include "esp_log.h"
 #include "esp_peripheral.h"
 #include "esp_timer.h"
@@ -31,16 +32,28 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
-
+#include "esp_assert.h"  
+#include "sys/param.h"  
 #include <stdbool.h>
 #include <stdint.h>
 #include "freertos/idf_additions.h"
 #include "hal/uart_types.h"
 #include "nimble/ble.h"
 #include "soc/gpio_num.h"
+#include "sdkconfig.h"
+#include "esp_bt.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#if CONFIG_IDF_TARGET_ESP32S3     
+    #define BLE_SVC_SPP_UUID16_THIRD                                         0xAC00
+    #define BLE_SVC_SPP_CHR_UUID16_UART_2_BAUD_RATE                          0xAC03
+    #define BLE_SVC_SPP_CHR_UUID16_WRITE_UART_2                              0xAC01
+    #define BLE_SVC_SPP_CHR_UUID16_READ_UART_2                               0xAC02 
+#endif
+
 
 /* 16 Bit SPP Service UUID */
 #define BLE_SVC_SPP_UUID16                                  0xABF0
@@ -63,8 +76,8 @@ extern "C" {
 #define BLE_ADVERTISING_NAME                                                 "UART-to-BLE-Bridge"
 
 
-#define BLE_ADVERTISING_POWER                                           7  //-3dm
-#define BLE_DEFAULT_POWER                                               7 //-3dbm
+#define BLE_ADVERTISING_POWER                                           ESP_PWR_LVL_P3  //3dm
+#define BLE_DEFAULT_POWER                                                ESP_PWR_LVL_P3 //3dbm
 
 struct ble_hs_cfg;
 struct ble_gatt_register_ctxt;
