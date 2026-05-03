@@ -1,7 +1,7 @@
 #include "soc/gpio_num.h"
 #include <stdint.h> 
 
-#define LED_CONNECTION_UPDATE_TIME                                       5000000
+#define LED_CONNECTION_UPDATE_TIME                                       1000000
 
 
 struct blink_structure
