@@ -1,4 +1,4 @@
-# ESP32-C3 Mini Dual UART ↔ BLE Bridge
+# ESP32-C3 and ESP32-S3 Mini Dual/Triple UART ↔ BLE Bridge
 
 ![ESP-IDF](https://img.shields.io/badge/ESP--IDF-5.x-red)
 ![BLE](https://img.shields.io/badge/BLE-NimBLE-blue)
@@ -12,9 +12,9 @@ Turn an ESP32-C3 Mini into a compact BLE serial bridge for embedded devices, sen
 
 # Overview
 
-Features:
+Feature:
 
-- Dual independent UART channels over BLE
+- Dual independent UART channels over BLE for ESP32C3 - Three independet UART channels for ESP32 S3.  
 - Bidirectional bridge:
   - UART → BLE notifications
   - BLE writes → UART
@@ -31,8 +31,12 @@ Features:
 Tested on:
 
 - ESP32-C3 Mini DEV Board
+- ESP32-S3 AI DEV Board
+- (Waiting to be tested on) ESP32-S3 Super Mini Dev Board.
 
 Example wiring:
+
+For ESP 32 C3 Mini Dev Board
 
 ```text
 UART0
@@ -43,6 +47,22 @@ UART1
 TX -> GPIO9
 RX -> GPIO10
 ```
+For Esp 32 S3 Dev Boards 
+
+```text
+UART0
+TX -> GPIO4
+RX -> GPIO5
+
+UART1
+TX -> GPIO6
+RX -> GPIO7
+
+UART2
+TX -> GPIO1
+RX -> GPIO2
+```
+
 
 Default serial settings:
 
@@ -163,11 +183,11 @@ Implemented:
 
 Planned optimizations:
 
-- Add security layers
+- Add security layers 
 - Add light sleep mode interruption 
-- 2M PHY tuning
+- 2M PHY tuning - Done. 
 - Throughput benchmarking
-- Add service for UART baud rate change on runtime. 
+- Add service for UART baud rate change on runtime - Done. 
 
 Target:
 
@@ -216,7 +236,7 @@ See:
 
 - [ ] Extended multi-client support
 - [ ] Framed packet mode
-- [ ] Performance tuning
+- [x] Performance tuning
 - [x] UART baud rate change in run time
 
 ---

@@ -610,8 +610,8 @@ void app_main(void) {
 
   Port0.Uart_port = UART_NUM_0;
 #if CONFIG_IDF_TARGET_ESP32S3
-  Port0.tx = GPIO_NUM_17;
-  Port0.rx = GPIO_NUM_18;
+  Port0.tx = GPIO_NUM_6;
+  Port0.rx = GPIO_NUM_7;
 #else
   Port0.tx = GPIO_NUM_9;
   Port0.rx = GPIO_NUM_10;
@@ -622,8 +622,8 @@ void app_main(void) {
 
 #if CONFIG_IDF_TARGET_ESP32S3
   Port2.Uart_port = UART_NUM_2;
-  Port2.tx = GPIO_NUM_16;
-  Port2.rx = GPIO_NUM_15;
+  Port2.tx = GPIO_NUM_1;
+  Port2.rx = GPIO_NUM_2;
 #endif
 
   ret = nimble_port_init();
