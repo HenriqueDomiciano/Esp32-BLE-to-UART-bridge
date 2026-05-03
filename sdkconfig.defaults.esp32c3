@@ -464,13 +464,6 @@ CONFIG_PARTITION_TABLE_OFFSET=0x8000
 CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
-#
-# Example Configuration
-#
-CONFIG_EXAMPLE_IO_TYPE=3
-# end of Example Configuration
-
-#
 # Compiler options
 #
 # CONFIG_COMPILER_OPTIMIZATION_DEBUG is not set

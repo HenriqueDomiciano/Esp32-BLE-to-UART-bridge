@@ -1,5 +1,7 @@
 #include "driver/uart.h"
+#include "esp_bt.h"
 #include "hal/uart_types.h"
+#include "host/ble_gap.h"
 #include "host/ble_gatt.h"
 #include "host/ble_hs.h"
 #include "include.h"
@@ -7,11 +9,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-
-#if CONFIG_IDF_TARGET_ESP32S3     
-#include "driver/usb_serial_jtag.h"
-#include "esp_vfs_usb_serial_jtag.h"
-#endif
 
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
 static uint8_t own_addr_type;
@@ -152,6 +149,26 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
   struct ble_gap_conn_desc desc;
   int rc;
   switch (event->type) {
+
+  case BLE_GAP_EVENT_CONNECT:
+#ifdef CONFIG_ENABLE_2M_PHY
+    if (event->connect.status == 0) {
+      ble_gap_set_prefered_le_phy(active_conn, BLE_GAP_LE_PHY_2M_MASK,
+                                  BLE_GAP_LE_PHY_2M_MASK, 0);
+    }
+    struct ble_gap_upd_params params = {.itvl_min = 6,  // 7.5 ms
+                                        .itvl_max = 12, // 15 ms
+                                        .latency = 0,
+                                        .supervision_timeout = 200};
+
+    ble_gap_update_params(active_conn, &params);
+    return 0; 
+#endif
+
+  case BLE_GAP_EVENT_PHY_UPDATE_COMPLETE:
+    ESP_LOGI("BLE", "TX PHY: %d RX PHY: %d", event->phy_updated.tx_phy,
+             event->phy_updated.rx_phy);
+    return 0;
   case BLE_GAP_EVENT_LINK_ESTAB:
     MODLOG_DFLT(INFO, "connection %s; status=%d ",
                 event->link_estab.status == 0 ? "established" : "failed",
@@ -503,8 +520,7 @@ void ble_server_uart_task(void *pvParameters) {
       subscribed = uart0_notify;
 
       tx_handle = ble_spp_tx_handle_uart_0;
-    } 
-    else if (connection->Uart_port == UART_NUM_1) {
+    } else if (connection->Uart_port == UART_NUM_1) {
       subscribed = uart1_notify;
 
       tx_handle = ble_spp_tx_handle_uart_1;
@@ -562,21 +578,37 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
               (void *)uart_connection_attributes, 5, NULL);
 }
 
+
+esp_power_level_t get_esp32_power_value_based_on_int(int8_t power_configuration) {
+    
+    esp_power_level_t power;
+
+    switch (power_configuration) {
+        case 9:  power = ESP_PWR_LVL_P12; break;
+        case 7:  power = ESP_PWR_LVL_P9; break;
+        case 5:  power = ESP_PWR_LVL_P6; break;
+        case 3:  power = ESP_PWR_LVL_P3; break;
+        case 0:  power = ESP_PWR_LVL_N0; break;
+        case -2: power = ESP_PWR_LVL_N3; break;
+        case -6: power = ESP_PWR_LVL_N6; break;
+        case -12:power = ESP_PWR_LVL_N12; break;
+        default: power = ESP_PWR_LVL_P3; break;
+    }
+    return power;
+}
+
 void app_main(void) {
   int rc;
-  xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
-    
+  xTaskCreate(led_task, "uTaskBlink", 4096, (void *)&led_state, 2, NULL);
+  esp_err_t ret = nvs_flash_init();
+  if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+      ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+    ESP_ERROR_CHECK(nvs_flash_erase());
+    ret = nvs_flash_init();
+  }
+  ESP_ERROR_CHECK(ret);
 
-esp_err_t ret = nvs_flash_init();
-if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
-    ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-  ESP_ERROR_CHECK(nvs_flash_erase());
-  ret = nvs_flash_init();
-}
-ESP_ERROR_CHECK(ret);
-
-
-Port0.Uart_port = UART_NUM_0;
+  Port0.Uart_port = UART_NUM_0;
 #if CONFIG_IDF_TARGET_ESP32S3
   Port0.tx = GPIO_NUM_17;
   Port0.rx = GPIO_NUM_18;
@@ -593,7 +625,6 @@ Port0.Uart_port = UART_NUM_0;
   Port2.tx = GPIO_NUM_16;
   Port2.rx = GPIO_NUM_15;
 #endif
-
 
   ret = nimble_port_init();
   if (ret != ESP_OK) {
@@ -615,7 +646,7 @@ Port0.Uart_port = UART_NUM_0;
   ble_hs_cfg.gatts_register_cb = gatt_svr_register_cb;
   ble_hs_cfg.store_status_cb = ble_store_util_status_rr;
 
-  ble_hs_cfg.sm_io_cap = CONFIG_EXAMPLE_IO_TYPE;
+  ble_hs_cfg.sm_io_cap = BLE_HS_IO_NO_INPUT_OUTPUT;
 #ifdef CONFIG_EXAMPLE_BONDING
   ble_hs_cfg.sm_bonding = 1;
 #endif
@@ -637,8 +668,10 @@ Port0.Uart_port = UART_NUM_0;
   assert(rc == 0);
   /* XXX Need to have template for store */
   ble_store_config_init();
-  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_DEFAULT, BLE_DEFAULT_POWER);
-  esp_ble_tx_power_set(ESP_BLE_PWR_TYPE_ADV, BLE_ADVERTISING_POWER);
   nimble_port_freertos_init(ble_spp_server_host_task);
   ble_att_set_preferred_mtu(BLE_PREFERRED_MTU);
+  esp_power_level_t default_power = get_esp32_power_value_based_on_int(CONFIG_BLE_TX_POWER_ADV);
+  esp_power_level_t advertise_power = get_esp32_power_value_based_on_int(CONFIG_BLE_TX_POWER_DEFAULT);
+  esp_ble_tx_power_set(advertise_power, BLE_DEFAULT_POWER);
+  esp_ble_tx_power_set(default_power, BLE_ADVERTISING_POWER);
 }

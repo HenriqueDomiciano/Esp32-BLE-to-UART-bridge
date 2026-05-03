@@ -1,0 +1,28 @@
+menu ESP-UART-BLE-Brigde-Options
+
+config USE_RGB_LED 
+    bool "Use S3 RGB LED For status"
+    default n
+    help
+        Use S3 RGB LED For status
+
+config ENABLE_2M_PHY
+    bool "Enable BLE 2M PHY"
+    default y
+    help
+        Enable 2M PHY for BLE connections
+
+config BLE_TX_POWER_ADV
+    int "BLE TX Power (dBm)"
+    range -12 9
+    default 3
+    help
+        Set BLE advertising transmit power in dBm
+
+config BLE_TX_POWER_DEFAULT
+    int "BLE TX Power (dBm)"
+    range -12 9
+    default 3
+    help
+        Set default BLE transmit power in dBm
+endmenu

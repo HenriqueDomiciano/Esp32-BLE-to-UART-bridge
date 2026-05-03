@@ -47,6 +47,7 @@
 extern "C" {
 #endif
 
+
 #if CONFIG_IDF_TARGET_ESP32S3     
     #define BLE_SVC_SPP_UUID16_THIRD                                         0xAC00
     #define BLE_SVC_SPP_CHR_UUID16_UART_2_BAUD_RATE                          0xAC03
