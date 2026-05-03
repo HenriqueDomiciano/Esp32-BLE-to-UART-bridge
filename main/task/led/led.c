@@ -31,7 +31,7 @@ void led_task(void *pvParameters) {
   blinkParameters_t state = get_current_ble_state_config(led_state);
   uint8_t number_of_connections;
   #if !CONFIG_IDF_TARGET_ESP32S3     
-  gpio_reset_pin(state.pin);
+    gpio_reset_pin(state.pin);
   #endif
   gpio_set_direction(state.pin, GPIO_MODE_OUTPUT_OD);
   int64_t starting_time = esp_timer_get_time();

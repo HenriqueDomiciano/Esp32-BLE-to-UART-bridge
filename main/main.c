@@ -566,14 +566,6 @@ void app_main(void) {
   int rc;
   xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
     
-#if CONFIG_IDF_TARGET_ESP32S3
-    usb_serial_jtag_driver_config_t usb_config = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
-    usb_serial_jtag_driver_install(&usb_config);
-    esp_vfs_dev_usb_serial_jtag_register();
-
-    // 2. Um pequeno delay para o driver USB estabilizar antes dos logs pesados
-    vTaskDelay(pdMS_TO_TICKS(100));  
-#endif
 
 esp_err_t ret = nvs_flash_init();
 if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
