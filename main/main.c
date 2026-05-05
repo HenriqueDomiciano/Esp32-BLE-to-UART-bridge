@@ -568,11 +568,12 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
   uart_driver_install(uart_connection_attributes->Uart_port, 16384, 16384, 10,
                       &uart_connection_attributes->Uart_queue_handle, 0);
   MODLOG_DFLT(INFO, "Queue addr: %p\n",
-              uart_connection_attributes->Uart_queue_handle);
+              uart_connection_attributes->Uart_queue_handle); 
   uart_param_config(uart_connection_attributes->Uart_port, &uart_config);
   uart_set_pin(uart_connection_attributes->Uart_port,
                uart_connection_attributes->tx, uart_connection_attributes->rx,
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+  
   gpio_pullup_en(uart_connection_attributes->rx);
   xTaskCreate(ble_server_uart_task, "uTask", 4096,
               (void *)uart_connection_attributes, 5, NULL);
@@ -599,7 +600,7 @@ esp_power_level_t get_esp32_power_value_based_on_int(int8_t power_configuration)
 
 void app_main(void) {
   int rc;
-  xTaskCreate(led_task, "uTaskBlink", 4096, (void *)&led_state, 2, NULL);
+  xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {

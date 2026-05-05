@@ -78,7 +78,6 @@ void led_task(void *pvParameters) {
     if (time_difference >= LED_CONNECTION_UPDATE_TIME) {
       starting_time = current_time;
       number_of_connections = get_number_of_connections();
-      ESP_LOGI("LED", "Number of connections %d", number_of_connections);
       if (number_of_connections == 0) {
         *led_state = WAITING;
       } else {
