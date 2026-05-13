@@ -25,4 +25,10 @@ config BLE_TX_POWER_DEFAULT
     default 3
     help
         Set default BLE transmit power in dBm
+config BLE_SECURITY_STATIC_KEY
+    bool "Use an static key to bond to the device"
+    default y
+    help
+        "Set the device with security and a static passkey set as 777888"
+        T
 endmenu
