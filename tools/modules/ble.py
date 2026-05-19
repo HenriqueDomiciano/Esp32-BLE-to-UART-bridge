@@ -1,8 +1,9 @@
 import asyncio
-from typing import List, Callable
+from typing import List,Callable, Optional, Sequence
 from modules.ble_tcp_dataclasses import ChannelRuntime
 import logging
 from bleak import BleakClient, BleakScanner
+from modules.pcap_logger.pcap_logger_dataclasses import LoggingParameters
 from modules.tcp import forward_to_tcp
 from bleak.backends.characteristic import (
     BleakGATTCharacteristic,
@@ -12,11 +13,11 @@ logger = logging.getLogger(__name__)
 
 
 def make_notify_handler(
-    channel: ChannelRuntime,
+    channel: ChannelRuntime, logging_parameters: Optional[LoggingParameters]
 ) -> Callable[[BleakGATTCharacteristic, bytearray], None]:
     def handler(_: BleakGATTCharacteristic, data: bytearray):
         logger.info(f"{channel.config.name} RX {bytes(data)!r}")
-        asyncio.create_task(forward_to_tcp(channel, bytes(data)))
+        asyncio.create_task(forward_to_tcp(channel, bytes(data), logging_parameters))
 
     return handler
 
@@ -35,7 +36,11 @@ async def ble_write_worker(client: BleakClient, channel: ChannelRuntime):
             raise ex
 
 
-async def ble_manager(channels: List[ChannelRuntime],address:str) -> None:
+async def ble_manager(
+    channels: List[ChannelRuntime],
+    address: str,
+    logging_parameters: Sequence[Optional[LoggingParameters]]
+) -> None:
 
     reconnect_delay: int = 2
     while True:
@@ -54,9 +59,10 @@ async def ble_manager(channels: List[ChannelRuntime],address:str) -> None:
             async with BleakClient(device) as client:
                 logger.info("BLE connected")
                 tasks = []
-                for channel in channels:
+                for index,channel in enumerate(channels):
                     await client.start_notify(
-                        channel.config.notify_uuid, make_notify_handler(channel)
+                        channel.config.notify_uuid,
+                        make_notify_handler(channel, logging_parameters[index]),
                     )
                     tasks.append(ble_write_worker(client, channel))
                     logger.info(f"Subscribed {channel.config.name}")
