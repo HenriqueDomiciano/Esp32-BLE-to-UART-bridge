@@ -6,6 +6,11 @@ config USE_RGB_LED
     help
         Use S3 RGB LED For status
 
+config DEBUG
+    bool "Enable debug logging"
+    default n
+    help
+        Enable 2M PHY for BLE connections
 config ENABLE_2M_PHY
     bool "Enable BLE 2M PHY"
     default y

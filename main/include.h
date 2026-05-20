@@ -46,7 +46,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#define UART_IDLE_TIMEOUT_US 5000
 
 #if CONFIG_IDF_TARGET_ESP32S3     
     #define BLE_SVC_SPP_UUID16_THIRD                                         0xAC00
