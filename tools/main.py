@@ -7,7 +7,7 @@ import asyncio
 from modules.constants import ADDRESS
 from modules.pcap_logger.pcap_logger_dataclasses import LoggingParameters
 from modules.tcp import start_channel_server
-from modules.ble import ble_manager
+from modules.ble import BleManager
 from modules.pcap_logger.pcap_logger import pcap_logger
 import logging
 from datetime import datetime
@@ -75,7 +75,8 @@ async def main():
         asyncio.create_task(start_channel_server(ch, lg)) for ch, lg in final_channels
     ]
     final_logs = [logs[1] for logs in final_channels]
-    ble_task = asyncio.create_task(ble_manager(channel_runtime, args.mac, final_logs))
+    ble_manager_object = BleManager(args.mac, channel_runtime, final_logs)
+    ble_task = asyncio.create_task(ble_manager_object.ble_manager())
 
     if args.log_pcap is not None or args.log_pcap:
         pcaps_tasks = [asyncio.create_task(pcap_logger(log)) for log in final_logs]
