@@ -27,7 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tcp-port-uart-0", type=int, default=2222)
     parser.add_argument("--tcp-port-uart-1", type=int, default=2223)
     parser.add_argument("--mac", type=str, default=ADDRESS)
-    parser.add_argument("--log-pcap", action="store_true", default=None)
+    parser.add_argument("--log-pcap", action="store_true", default=False)
 
     return parser.parse_args()
 
@@ -69,7 +69,7 @@ async def main():
             )
             final_channels.append((channel, logger_value))
     else:
-        final_channels = [(ChannelRuntime(ch), None) for ch in channels]
+        final_channels = [(ch, None) for ch in channel_runtime]
 
     tcp_tasks = [
         asyncio.create_task(start_channel_server(ch, lg)) for ch, lg in final_channels
