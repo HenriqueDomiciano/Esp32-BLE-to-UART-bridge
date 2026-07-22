@@ -9,8 +9,8 @@ from modules.pcap_logger.pcap_logger_dataclasses import LoggingParameters
 from modules.tcp import start_channel_server
 from modules.ble import BleManager
 from modules.pcap_logger.pcap_logger import pcap_logger
-import logging
 from datetime import datetime
+import logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,8 +24,10 @@ def parse_args() -> argparse.Namespace:
         default="INFO",
         help="Set logging level",
     )
+    parser.add_argument("--device", choices=["c3", "s3"], default="c3")
     parser.add_argument("--tcp-port-uart-0", type=int, default=2222)
     parser.add_argument("--tcp-port-uart-1", type=int, default=2223)
+    parser.add_argument("--tcp-port-uart-2", type=int, default=2224)
     parser.add_argument("--mac", type=str, default=ADDRESS)
     parser.add_argument("--log-pcap", action="store_true", default=False)
 
@@ -56,8 +58,17 @@ async def main():
             notify_uuid="0000abe2-0000-1000-8000-00805f9b34fb",
             write_uuid="0000abe1-0000-1000-8000-00805f9b34fb",
             tcp_port=args.tcp_port_uart_0,
-        ),
+        )
     ]
+    if args.device == "s3":
+        channels.append(
+            ChannelConfiguration(
+                name="uart2",
+                notify_uuid="0000ac02-0000-1000-8000-00805f9b34fb",
+                write_uuid="0000ac01-0000-1000-8000-00805f9b34fb",
+                tcp_port=args.tcp_port_uart_2,
+            )
+        )
     channel_runtime: List[ChannelRuntime] = [ChannelRuntime(ch) for ch in channels]
     final_channels = []
     if args.log_pcap:
