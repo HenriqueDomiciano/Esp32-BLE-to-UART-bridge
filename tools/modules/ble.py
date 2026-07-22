@@ -42,7 +42,7 @@ class BleManager:
                 data = await channel.tx_queue.get()
 
                 try:
-                    logger.info(f"{channel.config.name} TX {data.hex()}")
+                    logger.info(f"{channel.config.name} TX {data.hex().upper()}")
 
                     await client.write_gatt_char(
                         channel.config.write_uuid, data, response=True

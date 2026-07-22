@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 UART_BAUD_RATE_1 = "0000abf3-0000-1000-8000-00805f9b34fb"
 UART_BAUD_RATE_0 = "0000abe3-0000-1000-8000-00805f9b34fb"
+UART_BAUD_RATE_2 = "0000ac03-0000-1000-8000-00805f9b34fb"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -18,8 +19,8 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument(
         "--uart",
-        choices=["uart1","uart0","both"],
-        default="both",
+        choices=["uart2","uart1","uart0","all"],
+        default="all",
         help="Select UART to update"
     )
 
@@ -46,12 +47,19 @@ async def write_baud_rate(baud_rate:int,uart:str,address:str):
                 await client.write_gatt_char(UART_BAUD_RATE_1,baud_rate.to_bytes(4,"little"))
             elif uart == "uart0":
                 await client.write_gatt_char(UART_BAUD_RATE_0,baud_rate.to_bytes(4,"little"))
-            elif uart== "both":
+            elif uart == "uart2":
+                await client.write_gatt_char(UART_BAUD_RATE_2,baud_rate.to_bytes(4,"little"))
+            elif uart== "all":
                 await client.write_gatt_char(UART_BAUD_RATE_0,baud_rate.to_bytes(4,"little"))
                 await client.write_gatt_char(UART_BAUD_RATE_1,baud_rate.to_bytes(4,"little"))
+                try:
+                    await client.write_gatt_char(UART_BAUD_RATE_2,baud_rate.to_bytes(4,"little"))
+                except Exception as e:
+                    logger.error(f"Error occurred while writing to UART_BAUD_RATE_2: {e} either is not supported or not present")
             else:
                 logger.warning(f"{uart} not supported")
                 return
+        logger.info(f"Baud rate {baud_rate} written to {uart} successfully")
 
 if __name__ == "__main__":
     args = parse_args()

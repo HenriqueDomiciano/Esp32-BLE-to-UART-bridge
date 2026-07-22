@@ -2,7 +2,6 @@ from typing import Optional
 from modules.ble_tcp_dataclasses import ChannelRuntime
 import asyncio
 import logging
-from asyncio import Queue
 from modules.pcap_logger.pcap_logger_dataclasses import LoggingParameters, PacketInfo
 
 logger = logging.getLogger(__name__)
