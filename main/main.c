@@ -68,7 +68,6 @@ void app_main(void) {
   ble_spp_uart_init(&Port0);
   ble_spp_uart_init(&Port1);
 #if CONFIG_IDF_TARGET_ESP32S3
-  uart2_notify = false;
   ble_spp_uart_init(&Port2);
 #endif
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;

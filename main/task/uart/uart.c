@@ -5,6 +5,7 @@
 #include "host/ble_att.h"
 #include "host/ble_hs.h"
 #include "uart.h"
+#include <sys/param.h>
 #include <sys/types.h>
 
 
