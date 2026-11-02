@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/stream_buffer.h"
 #include "freertos/task.h"
 #include "sdmmc_cmd.h"
@@ -26,7 +27,7 @@
 #define SDCARD_TRIGGER_LEVEL 512U
 #define SDCARD_RECEIVE_TIMEOUT_MS 200U
 #define SDCARD_ENQUEUE_TIMEOUT_MS 100U
-#define SDCARD_FLUSH_PERIOD_US 2000000
+#define SDCARD_FLUSH_PERIOD_US 5000000
 #define SDCARD_TIMESTAMP_LAYOUT "00-00 00:00:00"
 #define SDCARD_RTC_SET_LAYOUT "0000/00/00 00:00:00"
 #define SDCARD_NAME_SIZE 32U
@@ -52,6 +53,8 @@ static FILE *log_file;
 static StreamBufferHandle_t stream;
 static StaticStreamBuffer_t stream_control;
 static uint8_t stream_storage[SDCARD_STREAM_SIZE + 1U];
+static SemaphoreHandle_t writer_done;
+static StaticSemaphore_t writer_done_control;
 static uint8_t write_chunk[SDCARD_CHUNK_SIZE];
 static char stdio_buffer[SDCARD_STDIO_BUFFER_SIZE];
 static char line[SDCARD_LINE_SIZE];
@@ -535,6 +538,7 @@ static void sdcard_writer_task(void *pvParameters) {
     }
   }
 
+  xSemaphoreGive(writer_done);
   vTaskDelete(NULL);
 }
 
@@ -592,12 +596,14 @@ bool sdcard_init(void) {
   stream = xStreamBufferCreateStatic(sizeof(stream_storage) - 1U,
                                      SDCARD_TRIGGER_LEVEL, stream_storage,
                                      &stream_control);
+  writer_done = xSemaphoreCreateBinaryStatic(&writer_done_control);
   card_present = true;
 
   if (xTaskCreate(sdcard_writer_task, "sdTask", SDCARD_TASK_STACK_SIZE, NULL,
                   SDCARD_TASK_PRIORITY, NULL) != pdPASS) {
     ESP_LOGE(TAG, "unable to create writer task");
     sdcard_abort_logging();
+    xSemaphoreGive(writer_done);
     return false;
   }
 
@@ -605,6 +611,20 @@ bool sdcard_init(void) {
 }
 
 bool sdcard_is_present(void) { return card_present; }
+
+bool sdcard_wait_unmounted(uint32_t timeout_ms) {
+  if (writer_done == NULL) {
+    return true;
+  }
+
+  if (xSemaphoreTake(writer_done, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+    return false;
+  }
+
+  /* Keeps later calls returning at once. */
+  xSemaphoreGive(writer_done);
+  return true;
+}
 
 bool sdcard_write(const uint8_t *data, size_t len) {
   if (!card_present || data == NULL || len == 0U) {

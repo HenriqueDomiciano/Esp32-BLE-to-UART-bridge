@@ -108,6 +108,12 @@ static void ble_spp_server_advertise(void) {
   memset(&adv_params, 0, sizeof adv_params);
   adv_params.conn_mode = BLE_GAP_CONN_MODE_UND;
   adv_params.disc_mode = BLE_GAP_DISC_MODE_GEN;
+#if CONFIG_SDCARD_KEEP_BLE
+  if (sdcard_is_present()) {
+    adv_params.itvl_min = BLE_GAP_ADV_ITVL_MS(BLE_LOGGING_ADV_ITVL_MIN_MS);
+    adv_params.itvl_max = BLE_GAP_ADV_ITVL_MS(BLE_LOGGING_ADV_ITVL_MAX_MS);
+  }
+#endif
   rc = ble_gap_adv_start(own_addr_type, NULL, BLE_HS_FOREVER, &adv_params,
                          ble_spp_server_gap_event, NULL);
   if (rc != 0) {
@@ -552,9 +558,24 @@ void app_main(void) {
   battery_init();
 #endif
 
+  bool logging = false;
+
 #if CONFIG_ENABLE_SDCARD
-  if (sdcard_init()) {
+  logging = sdcard_init();
+
+  if (logging) {
     MODLOG_DFLT(INFO, "SD card detected, UART0 data is logged to file\n");
+  }
+#endif
+
+  uart0_notify = false;
+
+  ble_spp_uart_init(&Port0);
+
+#if !CONFIG_SDCARD_KEEP_BLE
+  if (logging) {
+    ESP_LOGW("BLE", "logging to SD card, BLE not started");
+    return;
   }
 #endif
 
@@ -563,10 +584,6 @@ void app_main(void) {
     MODLOG_DFLT(ERROR, "Failed to init nimble %d \n", ret);
     return;
   }
-
-  uart0_notify = false;
-
-  ble_spp_uart_init(&Port0);
 
   ble_hs_cfg.reset_cb = ble_spp_server_on_reset;
   ble_hs_cfg.sync_cb = ble_spp_server_on_sync;

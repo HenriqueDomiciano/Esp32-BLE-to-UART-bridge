@@ -43,6 +43,14 @@ bool sdcard_is_present(void);
  */
 bool sdcard_write(const uint8_t *data, size_t len);
 
+/**
+ * Waits for the writer task to close the log file and unmount the card, which
+ * it does on its own once the battery monitor reports low battery.
+ *
+ * @return true when no card is mounted, also when none ever was.
+ */
+bool sdcard_wait_unmounted(uint32_t timeout_ms);
+
 #ifdef __cplusplus
 }
 #endif

@@ -65,6 +65,9 @@ extern "C" {
 #define BLE_ADVERTISING_NAME                                                 "UART-to-BLE-Bridge"
 
 
+#define BLE_LOGGING_ADV_ITVL_MIN_MS                                      1000
+#define BLE_LOGGING_ADV_ITVL_MAX_MS                                      1100
+
 #define BLE_ADVERTISING_POWER                                           ESP_PWR_LVL_P3  //3dm
 #define BLE_DEFAULT_POWER                                                ESP_PWR_LVL_P3 //3dbm
 
