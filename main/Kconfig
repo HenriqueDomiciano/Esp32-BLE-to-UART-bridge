@@ -12,18 +12,19 @@ config ENABLE_2M_PHY
         Enable 2M PHY for BLE connections
 
 config BLE_TX_POWER_ADV
-    int "BLE TX Power (dBm)"
-    range -12 9
-    default 3
+    int "BLE advertising TX power (dBm)"
+    range -24 18
+    default 0
     help
-        Set BLE advertising transmit power in dBm
+        Transmit power while advertising, in 3 dB steps.
 
 config BLE_TX_POWER_DEFAULT
-    int "BLE TX Power (dBm)"
-    range -12 9
-    default 3
+    int "BLE connection TX power (dBm)"
+    range -24 18
+    default 0
     help
-        Set default BLE transmit power in dBm
+        Transmit power of connections and of any other state without its own
+        setting, in 3 dB steps.
 
 config STATUS_LED_GPIO
     int "Status LED GPIO"
@@ -60,8 +61,7 @@ config SDCARD_KEEP_BLE
     help
         While a card is mounted UART0 data is not notified over BLE, so BLE
         only serves clients writing to UART0. Disabled, NimBLE is not started
-        when a card is mounted. Enabled, it advertises at about 1 s instead
-        of 30-60 ms while logging.
+        when a card is mounted. Enabled, it keeps advertising while logging.
 
 config SDCARD_BOOT_MARKER
     string "Device boot marker"
