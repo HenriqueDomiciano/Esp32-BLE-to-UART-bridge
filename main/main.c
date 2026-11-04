@@ -17,6 +17,7 @@
 #include <string.h>
 
 static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
+static void ble_notify_uart0(const uint8_t *data, size_t len);
 static uint8_t own_addr_type;
 int gatt_svr_register(void);
 
@@ -228,6 +229,15 @@ static int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
 
     if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_0) {
       uart0_notify = event->subscribe.cur_notify;
+
+      /* Notifications sent before the client subscribes are dropped, so the
+       * status line goes out here rather than on BLE_GAP_EVENT_CONNECT. */
+      if (event->subscribe.cur_notify && !event->subscribe.prev_notify) {
+        char status[CONSOLE_STATUS_SIZE];
+        size_t len = console_format_status(status, sizeof(status));
+
+        ble_notify_uart0((const uint8_t *)status, len);
+      }
     }
     return 0;
 
@@ -531,6 +541,8 @@ void app_main(void) {
 #if CONFIG_ENABLE_BATTERY_MONITOR
   battery_init();
 #endif
+
+  console_start_status_monitor();
 
   bool logging = false;
 

@@ -39,7 +39,9 @@ config LOG_LINE_PREFIX
     help
         Prepended to every ESP_LOG line written to the USB console so the
         firmware's own messages can be told apart from the bytes received on
-        UART0. Bytes from the target are never prefixed.
+        UART0. Bytes from the target are never prefixed. Also starts the
+        status line sent to BLE clients on subscribe, written at the top of
+        every SD log file and to the USB console whenever a terminal opens it.
 
 menu "SD card logger"
 

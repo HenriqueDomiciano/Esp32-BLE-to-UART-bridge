@@ -1,6 +1,7 @@
 #include "sdcard.h"
 
 #include "battery.h"
+#include "console.h"
 #include "driver/sdspi_host.h"
 #include "driver/spi_common.h"
 #include "esp_log.h"
@@ -332,10 +333,23 @@ static bool sdcard_fopen(const char *mode) {
   return true;
 }
 
-/* A NULL name opens a provisional LOGnnn.TXT, renamed once the RTC is known. */
+static bool sdcard_fwrite(const char *data, size_t len) {
+  if (fwrite(data, 1, len, log_file) != len) {
+    ESP_LOGE(TAG, "write failed, stopping SD logging");
+    return false;
+  }
+
+  return true;
+}
+
+/* A NULL name opens a provisional LOGnnn.TXT, renamed once the RTC is known.
+ * The file starts with the logger status line. */
 static bool sdcard_open_session(const char *name) {
+  char status[CONSOLE_STATUS_SIZE];
+
   if (!sdcard_free_path(name, log_path, sizeof(log_path)) ||
-      !sdcard_fopen("w")) {
+      !sdcard_fopen("w") ||
+      !sdcard_fwrite(status, console_format_status(status, sizeof(status)))) {
     return false;
   }
 
@@ -376,15 +390,6 @@ static bool sdcard_rename_session(const char *name) {
   }
 
   return sdcard_fopen("a");
-}
-
-static bool sdcard_write_line(size_t len) {
-  if (fwrite(line, 1, len, log_file) != len) {
-    ESP_LOGE(TAG, "write failed, stopping SD logging");
-    return false;
-  }
-
-  return true;
 }
 
 /* Only a printable ASCII line holding the boot marker or a timestamp opens a
@@ -443,7 +448,7 @@ static bool sdcard_handle_line(void) {
     size_t head = (size_t)(marker - line);
 
     /* What precedes the marker ends the previous boot. */
-    if (!sdcard_write_line(head)) {
+    if (!sdcard_fwrite(line, head)) {
       return false;
     }
 
@@ -500,7 +505,7 @@ static bool sdcard_handle_line(void) {
     stamp_seen = true;
   }
 
-  return sdcard_write_line(line_len);
+  return sdcard_fwrite(line, line_len);
 }
 
 static void sdcard_writer_task(void *pvParameters) {
