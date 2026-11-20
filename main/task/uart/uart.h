@@ -6,6 +6,7 @@
 #define UART_IDLE_TIMEOUT_US 5000
 
 
+
 struct uart_connection_attributes
 {
     QueueHandle_t Uart_queue_handle; 
