@@ -1,6 +1,7 @@
 #include "ble.h"
 #include "driver/uart.h"
 #include "esp_peripheral.h"
+#include "freertos/idf_additions.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
@@ -24,16 +25,23 @@ static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
                                                int total_len,
                                                uint16_t attribute_handler) {
   if (attribute_handler == ble_spp_uart_0_handles.rx_handle) {
-    uart_write_bytes(UART_NUM_0, temp_buffer, total_len);
-    MODLOG_DFLT(INFO, "Sent %d bytes to UART0\n", total_len);
+    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
+    if (xQueueSend(ble_spp_uart_0_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART0 Failed\n", total_len);
+    }
   } else if (attribute_handler == ble_spp_uart_1_handles.rx_handle) {
-    uart_write_bytes(UART_NUM_1, temp_buffer, total_len);
-    MODLOG_DFLT(INFO, "Sent %d bytes to UART1\n", total_len);
+    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
+    if (xQueueSend(ble_spp_uart_1_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART1 Failed\n", total_len);
+    }
   }
 #if CONFIG_IDF_TARGET_ESP32S3
   else if (attribute_handler == ble_spp_uart_2_handles.rx_handle) {
-    uart_write_bytes(UART_NUM_2, temp_buffer, total_len);
-    MODLOG_DFLT(INFO, "Sent %d bytes to UART2\n", total_len);
+    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
+
+    if (xQueueSend(ble_spp_uart_2_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART2 Failed\n", total_len);
+    }
   }
 #endif
 }
@@ -70,6 +78,7 @@ void initialize_ble_handle(BleHandle *ble_handle) {
   ble_handle->rx_handle = 0;
   ble_handle->baud_rate_handle = 0;
   ble_handle->uart_notify = false;
+  ble_handle->uart_tx_queue = xQueueCreate(10, sizeof(UartTxData));
 }
 
 uint8_t get_number_of_connections(void) {

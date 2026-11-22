@@ -10,12 +10,11 @@
 #include <stdint.h>
 #include <string.h>
 
-
-BleHandle ble_spp_uart_1_handles ;
-BleHandle ble_spp_uart_0_handles ; 
+BleHandle ble_spp_uart_1_handles;
+BleHandle ble_spp_uart_0_handles;
 
 #ifdef CONFIG_IDF_TARGET_ESP32S3
-BleHandle ble_spp_uart_2_handles ;
+BleHandle ble_spp_uart_2_handles;
 #endif
 
 static BleState_e led_state = DISCONNECTED;
@@ -35,7 +34,6 @@ static void ble_spp_server_host_task(void *param) {
   nimble_port_freertos_deinit();
 }
 
-
 void app_main(void) {
   int rc;
   initialize_ble_handle(&ble_spp_uart_0_handles);
@@ -43,7 +41,8 @@ void app_main(void) {
 #if CONFIG_IDF_TARGET_ESP32S3
   initialize_ble_handle(&ble_spp_uart_2_handles);
 #endif
-  xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state, 2, NULL);
+  xTaskCreate(led_task, "uTaskBlink", 2048, (void *)&led_state,
+              TASK_LOW_PRIORITY, NULL);
   esp_err_t ret = nvs_flash_init();
   if (ret == ESP_ERR_NVS_NO_FREE_PAGES ||
       ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {

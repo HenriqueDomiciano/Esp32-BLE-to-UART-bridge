@@ -1,4 +1,4 @@
-menu ESP-UART-BLE-Brigde-Options
+menu "ESP-UART-BLE-Brigde-Options"
 
 config USE_RGB_LED 
     bool "Use S3 RGB LED For status"

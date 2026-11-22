@@ -58,9 +58,9 @@ blinkParameters_t get_current_ble_state_config(BleState_e *current_state) {
 
 void led_task(void *pvParameters) {
   BleState_e *led_state = (BleState_e *)pvParameters;
-  blinkParameters_t state = get_current_ble_state_config(led_state);
   uint8_t number_of_connections;
 #if !CONFIG_IDF_TARGET_ESP32S3
+  blinkParameters_t state = get_current_ble_state_config(led_state);
   gpio_reset_pin(state.pin);
 #endif
 #if CONFIG_IDF_TARGET_ESP32S3 && CONFIG_USE_RGB_LED
@@ -110,6 +110,7 @@ void led_task(void *pvParameters) {
       rgb_set(r,g,bl); 
       vTaskDelay(pdMS_TO_TICKS(30));
 #else
+      blinkParameters_t state = get_current_ble_state_config(led_state);
       state = get_current_ble_state_config(led_state);
       gpio_set_level(state.pin, 1);
       vTaskDelay(pdMS_TO_TICKS(state.time_on_ms));

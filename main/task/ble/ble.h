@@ -3,13 +3,8 @@
 #include "sdkconfig.h"
 #include <stdint.h>
 #include "esp_bt.h"
+#include "task.h"
 
-struct BleHandle_t {
-  uint16_t tx_handle;
-  uint16_t rx_handle;
-  uint16_t baud_rate_handle;
-  bool uart_notify;
-} typedef BleHandle;
 
 
 uint8_t get_number_of_connections(void);

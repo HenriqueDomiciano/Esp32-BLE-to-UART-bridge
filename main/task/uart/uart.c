@@ -7,7 +7,6 @@
 #include "uart.h"
 #include <sys/param.h>
 #include <sys/types.h>
-#include "task/ble/ble.h"
 
 
 extern uint16_t active_conn; 
@@ -21,7 +20,16 @@ extern BleHandle ble_spp_uart_1_handles;
 extern BleHandle ble_spp_uart_2_handles;
 #endif
 
-void ble_server_uart_task(void *pvParameters) {
+
+/**
+ * @brief Task send  data to BLE the received UART from the device .
+ *
+ * Receives data from the UART
+ *
+ * @param[in] void *pvParameters pointer to UART connection attributes.
+ *
+ */
+void ble_server_uart_rx_task(void *pvParameters) {
   UartConnection *connection = (UartConnection *)pvParameters;
 
   uart_event_t event;
@@ -99,7 +107,44 @@ void ble_server_uart_task(void *pvParameters) {
   }
 }
 
+/**
+ * @brief Task received BLE data to the UART transmit .
+ *
+ * Copies the payload fro write attribute in to UART
+ * the NimBLE host task.
+ *
+ * @param[in] void *pvParameters pointer to UART connection attributes.
+ *
+ */
+void ble_server_uart_tx_task(void *pvParameters) {
+  
+  #ifdef CONFIG_IDF_TARGET_ESP32S3
+  QueueHandle_t uart_map[3] = {ble_spp_uart_0_handles.uart_tx_queue, ble_spp_uart_1_handles.uart_tx_queue, ble_spp_uart_2_handles.uart_tx_queue};
+  #else
+  QueueHandle_t uart_map[2] = {ble_spp_uart_0_handles.uart_tx_queue, ble_spp_uart_1_handles.uart_tx_queue};
+  #endif
+  UartConnection *connection = (UartConnection *)pvParameters;
 
+  UartTxData tx_data;
+
+  while (1) {
+    if (xQueueReceive(uart_map[connection->Uart_port], &tx_data, portMAX_DELAY)) {
+      uart_write_bytes(connection->Uart_port, (const char *)tx_data.data,
+                       tx_data.len);
+    }
+  }
+}
+
+
+/**
+ * @brief function to initialize tasks for handling BLE data to the UART and received UART data.
+ *
+ * Copies the payload fro write attribute in to UART
+ * the NimBLE host task.
+ *
+ * @param[in] void *UartConnection pointer to UART connection attributes.
+ *
+ */
 void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
   uart_config_t uart_config = {
       .baud_rate = 115200,
@@ -120,6 +165,8 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
   gpio_pullup_en(uart_connection_attributes->rx);
-  xTaskCreate(ble_server_uart_task, "uTask", 4096,
-              (void *)uart_connection_attributes, 10, NULL);
+  xTaskCreate(ble_server_uart_rx_task, "uTaskRX", 4096,
+              (void *)uart_connection_attributes, TASK_HIGH_PRIORITY, NULL);
+  xTaskCreate(ble_server_uart_tx_task, "uTaskTX", 4096,
+              (void *)uart_connection_attributes, TASK_HIGH_PRIORITY, NULL);
 }
