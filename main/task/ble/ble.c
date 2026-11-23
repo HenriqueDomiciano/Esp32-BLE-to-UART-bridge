@@ -21,6 +21,31 @@ extern BleHandle ble_spp_uart_1_handles;
 extern BleHandle ble_spp_uart_2_handles;
 #endif
 
+static bool enqueue_uart_tx_data(
+    QueueHandle_t queue,
+    const uint8_t *source,
+    size_t len)
+{
+    UartTxData tx_data = {
+        .data = malloc(len),
+        .len = len,
+    };
+
+    if (tx_data.data == NULL) {
+        MODLOG_DFLT(ERROR, "UART queue allocation failed\n");
+        return false;
+    }
+
+    memcpy(tx_data.data, source, len);
+
+    if (xQueueSend(queue, &tx_data, pdMS_TO_TICKS(10)) != pdTRUE) {
+        free(tx_data.data);
+        MODLOG_DFLT(ERROR, "UART queue full: lost %u bytes\n", (unsigned)len);
+        return false;
+    }
+
+    return true;
+}
 
 /** 
  * @brief Function to handle the UART data received over BLE and send it to the appropriate UART interface. 
@@ -33,21 +58,17 @@ static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
                                                int total_len,
                                                uint16_t attribute_handler) {
   if (attribute_handler == ble_spp_uart_0_handles.rx_handle) {
-    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
-    if (xQueueSend(ble_spp_uart_0_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_0_handles.uart_tx_queue, temp_buffer, total_len)) {
       MODLOG_DFLT(INFO, "Sent %d bytes to UART0 Failed\n", total_len);
     }
   } else if (attribute_handler == ble_spp_uart_1_handles.rx_handle) {
-    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
-    if (xQueueSend(ble_spp_uart_1_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_1_handles.uart_tx_queue, temp_buffer, total_len)) {
       MODLOG_DFLT(INFO, "Sent %d bytes to UART1 Failed\n", total_len);
     }
   }
 #if CONFIG_IDF_TARGET_ESP32S3
   else if (attribute_handler == ble_spp_uart_2_handles.rx_handle) {
-    UartTxData tx_data = { .data = temp_buffer, .len = total_len };
-
-    if (xQueueSend(ble_spp_uart_2_handles.uart_tx_queue, &tx_data, 0) != pdTRUE) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_2_handles.uart_tx_queue, temp_buffer, total_len)) {
       MODLOG_DFLT(INFO, "Sent %d bytes to UART2 Failed\n", total_len);
     }
   }
