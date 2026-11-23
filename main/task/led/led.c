@@ -14,7 +14,10 @@
 static led_strip_handle_t led_strip;
 static float_t breathing_speed = 0.2f;
 static uint8_t max_brightness = 100; 
-
+/**
+ * @brief Initialize the RGB LED.
+ * 
+ */
 void rgb_init(void) {
   led_strip_config_t strip_config = {
       .strip_gpio_num = GPIO_NUM_48,
@@ -42,6 +45,13 @@ static blinkParameters_t default_blink_parameter = {GPIO_NUM_48, 50, 50};
 static blinkParameters_t default_blink_parameter = {GPIO_NUM_8, 50, 50};
 #endif
 
+
+/** 
+ * @brief Get the blink parameters based on the current BLE state.
+ * 
+ * @param current_state Pointer to the current BLE state.
+ * @return blinkParameters_t The blink parameters for the current state.
+ */
 blinkParameters_t get_current_ble_state_config(BleState_e *current_state) {
   BleState_e state = (BleState_e)*current_state;
   switch (state) {
@@ -55,11 +65,18 @@ blinkParameters_t get_current_ble_state_config(BleState_e *current_state) {
     return default_blink_parameter;
   }
 }
-
+/**
+ * @brief Task to control the LED based on BLE state.
+ *
+ * This task monitors the BLE state and controls the LED accordingly.
+ * It updates the LED state every LED_CONNECTION_UPDATE_TIME milliseconds.
+ *
+ * @param pvParameters Pointer to the current BLE state (BleState_e).
+ */
 void led_task(void *pvParameters) {
   BleState_e *led_state = (BleState_e *)pvParameters;
-  blinkParameters_t state = get_current_ble_state_config(led_state);
   uint8_t number_of_connections;
+  blinkParameters_t state = get_current_ble_state_config(led_state);
 #if !CONFIG_IDF_TARGET_ESP32S3
   gpio_reset_pin(state.pin);
 #endif
@@ -110,6 +127,7 @@ void led_task(void *pvParameters) {
       rgb_set(r,g,bl); 
       vTaskDelay(pdMS_TO_TICKS(30));
 #else
+      blinkParameters_t state = get_current_ble_state_config(led_state);
       state = get_current_ble_state_config(led_state);
       gpio_set_level(state.pin, 1);
       vTaskDelay(pdMS_TO_TICKS(state.time_on_ms));

@@ -3,6 +3,9 @@
 #include "sdkconfig.h"
 #include <stdint.h>
 #include "esp_bt.h"
+#include "task.h"
+
+
 
 uint8_t get_number_of_connections(void);
 esp_power_level_t get_esp32_power_value_based_on_int(int8_t power_configuration); 
@@ -11,7 +14,9 @@ void ble_spp_server_advertise(void);
 void ble_spp_server_on_sync(void);
 void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt,void *arg); 
 void ble_spp_server_on_reset(int reason) ;
+void initialize_ble_handle(BleHandle *ble_handle);
 int gatt_svr_init(void);
+
 
 #if CONFIG_IDF_TARGET_ESP32S3     
     #define BLE_SVC_SPP_UUID16_THIRD                                         0xAC00

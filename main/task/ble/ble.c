@@ -1,37 +1,142 @@
 #include "ble.h"
+#include "driver/uart.h"
 #include "esp_peripheral.h"
+#include "freertos/idf_additions.h"
 #include "host/util/util.h"
 #include "nimble/nimble_port.h"
 #include "nimble/nimble_port_freertos.h"
 #include "services/gap/ble_svc_gap.h"
-#include <sys/types.h>
-#include "driver/uart.h"
 #include "services/gatt/ble_svc_gatt.h"
-
+#include <stdint.h>
+#include <sys/types.h>
 
 int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg);
 int gatt_svr_register(void);
 static uint8_t own_addr_type;
-
-bool uart0_notify = false;
-bool uart1_notify = false;
 uint16_t active_conn = BLE_HS_CONN_HANDLE_NONE;
 
-#if CONFIG_IDF_TARGET_ESP32S3
-bool uart2_notify = 0;
-u_int16_t ble_spp_tx_handle_uart_2;
-u_int16_t ble_spp_rx_handle_uart_2;
-u_int16_t ble_spp_handle_uart_2_baud_rate;
+extern BleHandle ble_spp_uart_0_handles;
+extern BleHandle ble_spp_uart_1_handles;
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+extern BleHandle ble_spp_uart_2_handles;
 #endif
 
-u_int16_t ble_spp_tx_handle_uart_1;
-u_int16_t ble_spp_rx_handle_uart_1;
-u_int16_t ble_spp_tx_handle_uart_0;
-u_int16_t ble_spp_rx_handle_uart_0;
+static bool enqueue_uart_tx_data(
+    QueueHandle_t queue,
+    const uint8_t *source,
+    size_t len)
+{
+    UartTxData tx_data = {
+        .data = malloc(len),
+        .len = len,
+    };
 
-u_int16_t ble_spp_handle_uart_1_baud_rate;
-u_int16_t ble_spp_handle_uart_0_baud_rate;
+    if (tx_data.data == NULL) {
+        MODLOG_DFLT(ERROR, "UART queue allocation failed\n");
+        return false;
+    }
 
+    memcpy(tx_data.data, source, len);
+
+    if (xQueueSend(queue, &tx_data, pdMS_TO_TICKS(10)) != pdTRUE) {
+        free(tx_data.data);
+        MODLOG_DFLT(ERROR, "UART queue full: lost %u bytes\n", (unsigned)len);
+        return false;
+    }
+
+    return true;
+}
+
+/** 
+ * @brief Function to handle the UART data received over BLE and send it to the appropriate UART interface. 
+ * 
+ * @param temp_buffer The buffer with data
+ * @param total_len The len of data to write 
+ * @param attribute_handler The BLE handle of the attribute that was written to
+ */
+static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
+                                               int total_len,
+                                               uint16_t attribute_handler) {
+  if (attribute_handler == ble_spp_uart_0_handles.rx_handle) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_0_handles.uart_tx_queue, temp_buffer, total_len)) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART0 Failed\n", total_len);
+    }
+  } else if (attribute_handler == ble_spp_uart_1_handles.rx_handle) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_1_handles.uart_tx_queue, temp_buffer, total_len)) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART1 Failed\n", total_len);
+    }
+  }
+#if CONFIG_IDF_TARGET_ESP32S3
+  else if (attribute_handler == ble_spp_uart_2_handles.rx_handle) {
+    if (!enqueue_uart_tx_data(ble_spp_uart_2_handles.uart_tx_queue, temp_buffer, total_len)) {
+      MODLOG_DFLT(INFO, "Sent %d bytes to UART2 Failed\n", total_len);
+    }
+  }
+#endif
+}
+
+
+/** 
+ * @brief Function to change the baud rate of the UART interface if the attribute handler corresponds to a baud rate characteristic.
+ * 
+ * @param temp_buffer The temporary buffer containing the new baud rate value.
+ * @param total_len The len of the buffer (should be 4 bytes for a uint32_t).
+ * @param attribute_handler The expected attribute handler for the baud rate characteristic.
+ */
+static void change_baud_rate_if_applies(uint8_t *temp_buffer, int total_len,
+                                        uint16_t attribute_handler) {
+  if (attribute_handler == ble_spp_uart_0_handles.baud_rate_handle) {
+    uint32_t new_uart0_baud_rate;
+    memcpy(&new_uart0_baud_rate, temp_buffer, sizeof(new_uart0_baud_rate));
+    uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);
+  } else if (attribute_handler == ble_spp_uart_1_handles.baud_rate_handle) {
+
+    uint32_t new_uart1_baud_rate;
+    memcpy(&new_uart1_baud_rate, temp_buffer, sizeof(new_uart1_baud_rate));
+    uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);
+  }
+#if CONFIG_IDF_TARGET_ESP32S3
+  else if (attribute_handler == ble_spp_uart_2_handles.baud_rate_handle) {
+    uint32_t new_uart2_baud_rate;
+    memcpy(&new_uart2_baud_rate, temp_buffer, sizeof(new_uart2_baud_rate));
+    uart_set_baudrate(UART_NUM_2, new_uart2_baud_rate);
+  }
+#endif
+}
+
+
+/**
+ * @brief The function handle_attribute_event processes BLE attribute events, determining if the event corresponds to a UART data write or a baud rate change. It delegates the handling to the appropriate functions based on the attribute handler.
+ * 
+ * @param temp_buffer The expected buffer
+ * @param total_len The len of the buffer
+ * @param attribute_handler The expected attribute handler
+ */
+static void handle_attribute_event(uint8_t *temp_buffer, int total_len,
+                                   uint16_t attribute_handler) {
+  write_to_uart_interface_if_applies(temp_buffer, total_len, attribute_handler);
+  change_baud_rate_if_applies(temp_buffer, total_len, attribute_handler);
+}
+
+
+/**
+ * @brief Initialize the BLE handle structure with default values. 
+ * 
+ * @param ble_handle The pointer to the BleHandle structure to be initialized. 
+ */
+void initialize_ble_handle(BleHandle *ble_handle) {
+  ble_handle->tx_handle = 0;
+  ble_handle->rx_handle = 0;
+  ble_handle->baud_rate_handle = 0;
+  ble_handle->uart_notify = false;
+  ble_handle->uart_tx_queue = xQueueCreate(10, sizeof(UartTxData));
+}
+
+/**
+ * @brief Get the number of connections object
+ * 
+ * @return uint8_t 
+ */
 uint8_t get_number_of_connections(void) {
   uint8_t counter = 0;
   for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1; conn++) {
@@ -43,7 +148,8 @@ uint8_t get_number_of_connections(void) {
   return counter;
 }
 
-esp_power_level_t get_esp32_power_value_based_on_int(int8_t power_configuration) {
+esp_power_level_t
+get_esp32_power_value_based_on_int(int8_t power_configuration) {
 
   esp_power_level_t power;
 
@@ -79,9 +185,10 @@ esp_power_level_t get_esp32_power_value_based_on_int(int8_t power_configuration)
   return power;
 }
 
-
 /**
- * Logs information about a connection to the console.
+ * @brief Logs information about a connection to the console.
+ * 
+ * @param desc The connection description structure.
  */
 void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc) {
   MODLOG_DFLT(INFO,
@@ -105,6 +212,10 @@ void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc) {
               desc->sec_state.bonded);
 }
 
+/**
+ * @brief BLE Server advertise callback
+ * 
+ */
 void ble_spp_server_advertise(void) {
   struct ble_gap_adv_params adv_params;
   struct ble_hs_adv_fields fields;
@@ -145,8 +256,7 @@ void ble_spp_server_advertise(void) {
   }
 }
 
-int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) 
-{
+int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
   struct ble_gap_conn_desc desc;
   int rc;
   switch (event->type) {
@@ -198,8 +308,8 @@ int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
     MODLOG_DFLT(INFO, "\n");
 
     active_conn = BLE_HS_CONN_HANDLE_NONE;
-    uart0_notify = false;
-    uart1_notify = false;
+    ble_spp_uart_0_handles.uart_notify = false;
+    ble_spp_uart_1_handles.uart_notify = false;
 
     ble_spp_server_advertise();
     return 0;
@@ -235,14 +345,15 @@ int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
                 event->subscribe.cur_indicate);
     active_conn = event->subscribe.conn_handle;
 
-    if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_0) {
-      uart0_notify = event->subscribe.cur_notify;
-    } else if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_1) {
-      uart1_notify = event->subscribe.cur_notify;
+    if (event->subscribe.attr_handle == ble_spp_uart_0_handles.tx_handle) {
+      ble_spp_uart_0_handles.uart_notify = event->subscribe.cur_notify;
+    } else if (event->subscribe.attr_handle ==
+               ble_spp_uart_1_handles.tx_handle) {
+      ble_spp_uart_1_handles.uart_notify = event->subscribe.cur_notify;
     }
 #if CONFIG_IDF_TARGET_ESP32S3
-    else if (event->subscribe.attr_handle == ble_spp_tx_handle_uart_2) {
-      uart2_notify = event->subscribe.cur_notify;
+    else if (event->subscribe.attr_handle == ble_spp_uart_2_handles.tx_handle) {
+      ble_spp_uart_2_handles.uart_notify = event->subscribe.cur_notify;
     }
 #endif
     return 0;
@@ -252,6 +363,11 @@ int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg)
   }
 }
 
+/**
+ * @brief BLE Server reset callback
+ * 
+ * @param reason 
+ */
 void ble_spp_server_on_reset(int reason) {
   MODLOG_DFLT(ERROR, "Resetting state; reason=%d\n", reason);
 }
@@ -276,10 +392,17 @@ void ble_spp_server_on_sync(void) {
   MODLOG_DFLT(INFO, "\n");
   ble_spp_server_advertise();
 }
-
-
+/**
+ * @brief The ble_svc_gatt_handler function is a callback that handles GATT read and write operations for the BLE service. It processes read and write requests, copying data from the received buffer to a temporary buffer and delegating the handling of the data to the appropriate functions based on the attribute handle.
+ * 
+ * @param conn_handle The communication handle for the BLE connection.
+ * @param attr_handle The handle of the attribute being accessed.
+ * @param ctxt The context of the GATT access operation, including the operation type and the data buffer.
+ * @param arg Args for the callback function (not used in this implementation).
+ * @return int The error code indicating the success or failure of the operation. Returns 0 on success.
+ */
 int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
-                                struct ble_gatt_access_ctxt *ctxt, void *arg) {
+                         struct ble_gatt_access_ctxt *ctxt, void *arg) {
   switch (ctxt->op) {
   case BLE_GATT_ACCESS_OP_READ_CHR:
     MODLOG_DFLT(INFO, "Callback for read");
@@ -293,40 +416,8 @@ int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
         MODLOG_DFLT(ERROR, "Malloc failed for %d bytes\n", total_len);
         return BLE_ATT_ERR_INSUFFICIENT_RES;
       }
-
       os_mbuf_copydata(ctxt->om, 0, total_len, temp_buf);
-
-      if (attr_handle == ble_spp_rx_handle_uart_0) {
-        uart_write_bytes(UART_NUM_0, temp_buf, total_len);
-        MODLOG_DFLT(INFO, "Sent %d bytes to UART0\n", total_len);
-      } else if (attr_handle == ble_spp_rx_handle_uart_1) {
-        uart_write_bytes(UART_NUM_1, temp_buf, total_len);
-        MODLOG_DFLT(INFO, "Sent %d bytes to UART1\n", total_len);
-      }
-#if CONFIG_IDF_TARGET_ESP32S3
-      else if (attr_handle == ble_spp_rx_handle_uart_2) {
-        uart_write_bytes(UART_NUM_2, temp_buf, total_len);
-        MODLOG_DFLT(INFO, "Sent %d bytes to UART2\n", total_len);
-      }
-#endif
-      else if (attr_handle == ble_spp_handle_uart_0_baud_rate) {
-        uint32_t new_uart0_baud_rate;
-        memcpy(&new_uart0_baud_rate, temp_buf, sizeof(new_uart0_baud_rate));
-        uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);
-      } else if (attr_handle == ble_spp_handle_uart_1_baud_rate) {
-
-        uint32_t new_uart1_baud_rate;
-        memcpy(&new_uart1_baud_rate, temp_buf, sizeof(new_uart1_baud_rate));
-        uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);
-      }
-#if CONFIG_IDF_TARGET_ESP32S3
-      else if (attr_handle == ble_spp_handle_uart_2_baud_rate) {
-        uint32_t new_uart2_baud_rate;
-        memcpy(&new_uart2_baud_rate, temp_buf, sizeof(new_uart2_baud_rate));
-        uart_set_baudrate(UART_NUM_2, new_uart2_baud_rate);
-      }
-#endif
-
+      handle_attribute_event(temp_buf, total_len, attr_handle);
       free(temp_buf);
     }
     break;
@@ -350,20 +441,20 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                  .uuid =
                      BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_1),
                  .access_cb = ble_svc_gatt_handler,
-                 .val_handle = &ble_spp_rx_handle_uart_1,
+                 .val_handle = &ble_spp_uart_1_handles.rx_handle,
                  .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
                     .uuid =
                         BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_READ_UART_1),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_tx_handle_uart_1,
+                    .val_handle = &ble_spp_uart_1_handles.tx_handle,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
                 {
                     .uuid = BLE_UUID16_DECLARE(
                         BLE_SVC_SPP_CHR_UUID16_UART_1_BAUD_RATE),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_handle_uart_1_baud_rate,
+                    .val_handle = &ble_spp_uart_1_handles.baud_rate_handle,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 },
                 {0}},
@@ -378,21 +469,21 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                  .uuid =
                      BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_0),
                  .access_cb = ble_svc_gatt_handler,
-                 .val_handle = &ble_spp_rx_handle_uart_0,
+                 .val_handle = &ble_spp_uart_0_handles.rx_handle,
                  .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
 
                     .uuid =
                         BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_READ_UART_0),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_tx_handle_uart_0,
+                    .val_handle = &ble_spp_uart_0_handles.tx_handle,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
                 {
                     .uuid = BLE_UUID16_DECLARE(
                         BLE_SVC_SPP_CHR_UUID16_UART_0_BAUD_RATE),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_handle_uart_0_baud_rate,
+                    .val_handle = &ble_spp_uart_0_handles.baud_rate_handle,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 },
                 {0}},
@@ -408,21 +499,21 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
                  .uuid =
                      BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_WRITE_UART_2),
                  .access_cb = ble_svc_gatt_handler,
-                 .val_handle = &ble_spp_rx_handle_uart_2,
+                 .val_handle = &ble_spp_uart_2_handles.rx_handle,
                  .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP},
                 {
 
                     .uuid =
                         BLE_UUID16_DECLARE(BLE_SVC_SPP_CHR_UUID16_READ_UART_2),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_tx_handle_uart_2,
+                    .val_handle = &ble_spp_uart_2_handles.tx_handle,
                     .flags = BLE_GATT_CHR_F_NOTIFY,
                 },
                 {
                     .uuid = BLE_UUID16_DECLARE(
                         BLE_SVC_SPP_CHR_UUID16_UART_2_BAUD_RATE),
                     .access_cb = ble_svc_gatt_handler,
-                    .val_handle = &ble_spp_handle_uart_2_baud_rate,
+                    .val_handle = &ble_spp_uart_2_handles.baud_rate_handle,
                     .flags = BLE_GATT_CHR_F_WRITE_NO_RSP,
                 },
                 {0}},
@@ -431,8 +522,12 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
     {0}, /* No more services. */
 };
 
-void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt,
-                                 void *arg) {
+/**
+ * @brief GATT server register callback
+ * @param ctxt The GATT register context
+ * @param arg Arguments for the callback function
+ */
+void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
   char buf[BLE_UUID_STR_LEN];
 
   switch (ctxt->op) {
@@ -461,7 +556,11 @@ void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt,
     break;
   }
 }
-
+/**
+ * @brief Initialize the GATT server
+ * 
+ * @return int 
+ */
 int gatt_svr_init(void) {
   int rc = 0;
   ble_svc_gap_init();
@@ -480,4 +579,3 @@ int gatt_svr_init(void) {
 
   return 0;
 }
-

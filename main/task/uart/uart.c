@@ -9,30 +9,33 @@
 #include <sys/types.h>
 
 
-extern bool uart0_notify;
-extern bool uart1_notify;
 extern uint16_t active_conn; 
 
 #if CONFIG_IDF_TARGET_ESP32S3
-extern bool uart2_notify;
-extern u_int16_t ble_spp_tx_handle_uart_2;
-extern u_int16_t ble_spp_rx_handle_uart_2;
-extern u_int16_t ble_spp_handle_uart_2_baud_rate;
 #endif
 
-extern u_int16_t ble_spp_tx_handle_uart_1;
-extern u_int16_t ble_spp_rx_handle_uart_1;
-extern u_int16_t ble_spp_tx_handle_uart_0;
-extern u_int16_t ble_spp_rx_handle_uart_0;
+extern BleHandle ble_spp_uart_0_handles;
+extern BleHandle ble_spp_uart_1_handles;
+#if CONFIG_IDF_TARGET_ESP32S3
+extern BleHandle ble_spp_uart_2_handles;
+#endif
 
-void ble_server_uart_task(void *pvParameters) {
+
+/**
+ * @brief Task send  data to BLE the received UART from the device .
+ *
+ * Receives data from the UART
+ *
+ * @param[in] void *pvParameters pointer to UART connection attributes.
+ *
+ */
+void ble_server_uart_rx_task(void *pvParameters) {
   UartConnection *connection = (UartConnection *)pvParameters;
 
   uart_event_t event;
 
-  uint8_t aggregate[2048];
+  uint8_t aggregate[2048] = {0};
   size_t aggregate_len = 0;
-
   int64_t last_rx = 0;
 
   while (1) {
@@ -66,19 +69,18 @@ void ble_server_uart_task(void *pvParameters) {
     if (timeout) {
       bool subscribed = false;
       uint16_t tx_handle = 0;
-
       if (connection->Uart_port == UART_NUM_0) {
-        subscribed = uart0_notify;
-        tx_handle = ble_spp_tx_handle_uart_0;
+        subscribed = ble_spp_uart_0_handles.uart_notify;
+        tx_handle = ble_spp_uart_0_handles.tx_handle;
       } else if (connection->Uart_port == UART_NUM_1) {
-        subscribed = uart1_notify;
-        tx_handle = ble_spp_tx_handle_uart_1;
+        subscribed = ble_spp_uart_1_handles.uart_notify;
+        tx_handle = ble_spp_uart_1_handles.tx_handle;
       }
 
 #if CONFIG_IDF_TARGET_ESP32S3
       else if (connection->Uart_port == UART_NUM_2) {
-        subscribed = uart2_notify;
-        tx_handle = ble_spp_tx_handle_uart_2;
+        subscribed = ble_spp_uart_2_handles.uart_notify;
+        tx_handle = ble_spp_uart_2_handles.tx_handle;
       }
 #endif
 
@@ -105,7 +107,44 @@ void ble_server_uart_task(void *pvParameters) {
   }
 }
 
+/**
+ * @brief Task received BLE data to the UART transmit .
+ *
+ * Copies the payload fro write attribute in to UART
+ * the NimBLE host task.
+ *
+ * @param[in] void *pvParameters pointer to UART connection attributes.
+ *
+ */
+void ble_server_uart_tx_task(void *pvParameters) {
+  
+  #ifdef CONFIG_IDF_TARGET_ESP32S3
+  QueueHandle_t uart_map[3] = {ble_spp_uart_0_handles.uart_tx_queue, ble_spp_uart_1_handles.uart_tx_queue, ble_spp_uart_2_handles.uart_tx_queue};
+  #else
+  QueueHandle_t uart_map[2] = {ble_spp_uart_0_handles.uart_tx_queue, ble_spp_uart_1_handles.uart_tx_queue};
+  #endif
+  UartConnection *connection = (UartConnection *)pvParameters;
 
+  UartTxData tx_data;
+
+  while (1) {
+    if (xQueueReceive(uart_map[connection->Uart_port], &tx_data, portMAX_DELAY)) {
+      uart_write_bytes(connection->Uart_port, (const char *)tx_data.data,
+                       tx_data.len);
+    }
+  }
+}
+
+
+/**
+ * @brief function to initialize tasks for handling BLE data to the UART and received UART data.
+ *
+ * Copies the payload fro write attribute in to UART
+ * the NimBLE host task.
+ *
+ * @param[in] void *UartConnection pointer to UART connection attributes.
+ *
+ */
 void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
   uart_config_t uart_config = {
       .baud_rate = 115200,
@@ -126,6 +165,8 @@ void ble_spp_uart_init(UartConnection *uart_connection_attributes) {
                UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
 
   gpio_pullup_en(uart_connection_attributes->rx);
-  xTaskCreate(ble_server_uart_task, "uTask", 4096,
-              (void *)uart_connection_attributes, 10, NULL);
+  xTaskCreate(ble_server_uart_rx_task, "uTaskRX", 4096,
+              (void *)uart_connection_attributes, TASK_HIGH_PRIORITY, NULL);
+  xTaskCreate(ble_server_uart_tx_task, "uTaskTX", 4096,
+              (void *)uart_connection_attributes, TASK_HIGH_PRIORITY, NULL);
 }
