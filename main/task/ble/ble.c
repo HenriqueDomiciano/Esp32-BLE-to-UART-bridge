@@ -21,6 +21,14 @@ extern BleHandle ble_spp_uart_1_handles;
 extern BleHandle ble_spp_uart_2_handles;
 #endif
 
+
+/** 
+ * @brief Function to handle the UART data received over BLE and send it to the appropriate UART interface. 
+ * 
+ * @param temp_buffer The buffer with data
+ * @param total_len The len of data to write 
+ * @param attribute_handler The BLE handle of the attribute that was written to
+ */
 static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
                                                int total_len,
                                                uint16_t attribute_handler) {
@@ -46,6 +54,14 @@ static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
 #endif
 }
 
+
+/** 
+ * @brief Function to change the baud rate of the UART interface if the attribute handler corresponds to a baud rate characteristic.
+ * 
+ * @param temp_buffer The temporary buffer containing the new baud rate value.
+ * @param total_len The len of the buffer (should be 4 bytes for a uint32_t).
+ * @param attribute_handler The expected attribute handler for the baud rate characteristic.
+ */
 static void change_baud_rate_if_applies(uint8_t *temp_buffer, int total_len,
                                         uint16_t attribute_handler) {
   if (attribute_handler == ble_spp_uart_0_handles.rx_handle) {
@@ -67,12 +83,26 @@ static void change_baud_rate_if_applies(uint8_t *temp_buffer, int total_len,
 #endif
 }
 
+
+/**
+ * @brief The function handle_attribute_event processes BLE attribute events, determining if the event corresponds to a UART data write or a baud rate change. It delegates the handling to the appropriate functions based on the attribute handler.
+ * 
+ * @param temp_buffer The expected buffer
+ * @param total_len The len of the buffer
+ * @param attribute_handler The expected attribute handler
+ */
 static void handle_attribute_event(uint8_t *temp_buffer, int total_len,
                                    uint16_t attribute_handler) {
   write_to_uart_interface_if_applies(temp_buffer, total_len, attribute_handler);
   change_baud_rate_if_applies(temp_buffer, total_len, attribute_handler);
 }
 
+
+/**
+ * @brief Initialize the BLE handle structure with default values. 
+ * 
+ * @param ble_handle The pointer to the BleHandle structure to be initialized. 
+ */
 void initialize_ble_handle(BleHandle *ble_handle) {
   ble_handle->tx_handle = 0;
   ble_handle->rx_handle = 0;
@@ -81,6 +111,11 @@ void initialize_ble_handle(BleHandle *ble_handle) {
   ble_handle->uart_tx_queue = xQueueCreate(10, sizeof(UartTxData));
 }
 
+/**
+ * @brief Get the number of connections object
+ * 
+ * @return uint8_t 
+ */
 uint8_t get_number_of_connections(void) {
   uint8_t counter = 0;
   for (int conn = 0; conn < CONFIG_BT_NIMBLE_MAX_CONNECTIONS + 1; conn++) {
@@ -130,7 +165,9 @@ get_esp32_power_value_based_on_int(int8_t power_configuration) {
 }
 
 /**
- * Logs information about a connection to the console.
+ * @brief Logs information about a connection to the console.
+ * 
+ * @param desc The connection description structure.
  */
 void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc) {
   MODLOG_DFLT(INFO,
@@ -154,6 +191,10 @@ void ble_spp_server_print_conn_desc(struct ble_gap_conn_desc *desc) {
               desc->sec_state.bonded);
 }
 
+/**
+ * @brief BLE Server advertise callback
+ * 
+ */
 void ble_spp_server_advertise(void) {
   struct ble_gap_adv_params adv_params;
   struct ble_hs_adv_fields fields;
@@ -301,6 +342,11 @@ int ble_spp_server_gap_event(struct ble_gap_event *event, void *arg) {
   }
 }
 
+/**
+ * @brief BLE Server reset callback
+ * 
+ * @param reason 
+ */
 void ble_spp_server_on_reset(int reason) {
   MODLOG_DFLT(ERROR, "Resetting state; reason=%d\n", reason);
 }
@@ -325,7 +371,15 @@ void ble_spp_server_on_sync(void) {
   MODLOG_DFLT(INFO, "\n");
   ble_spp_server_advertise();
 }
-
+/**
+ * @brief The ble_svc_gatt_handler function is a callback that handles GATT read and write operations for the BLE service. It processes read and write requests, copying data from the received buffer to a temporary buffer and delegating the handling of the data to the appropriate functions based on the attribute handle.
+ * 
+ * @param conn_handle The communication handle for the BLE connection.
+ * @param attr_handle The handle of the attribute being accessed.
+ * @param ctxt The context of the GATT access operation, including the operation type and the data buffer.
+ * @param arg Args for the callback function (not used in this implementation).
+ * @return int The error code indicating the success or failure of the operation. Returns 0 on success.
+ */
 int ble_svc_gatt_handler(uint16_t conn_handle, uint16_t attr_handle,
                          struct ble_gatt_access_ctxt *ctxt, void *arg) {
   switch (ctxt->op) {
@@ -447,6 +501,11 @@ static const struct ble_gatt_svc_def new_ble_svc_gatt_defs[] = {
     {0}, /* No more services. */
 };
 
+/**
+ * @brief GATT server register callback
+ * @param ctxt The GATT register context
+ * @param arg Arguments for the callback function
+ */
 void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
   char buf[BLE_UUID_STR_LEN];
 
@@ -476,7 +535,11 @@ void gatt_svr_register_cb(struct ble_gatt_register_ctxt *ctxt, void *arg) {
     break;
   }
 }
-
+/**
+ * @brief Initialize the GATT server
+ * 
+ * @return int 
+ */
 int gatt_svr_init(void) {
   int rc = 0;
   ble_svc_gap_init();

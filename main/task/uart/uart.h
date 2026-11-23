@@ -18,7 +18,6 @@ struct UartConnection
 
 } typedef UartConnection;
 
-
 struct TxTaskParameters
 {
     UartConnection *uart_connection;
