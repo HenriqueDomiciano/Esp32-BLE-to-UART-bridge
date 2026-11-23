@@ -85,18 +85,18 @@ static void write_to_uart_interface_if_applies(uint8_t *temp_buffer,
  */
 static void change_baud_rate_if_applies(uint8_t *temp_buffer, int total_len,
                                         uint16_t attribute_handler) {
-  if (attribute_handler == ble_spp_uart_0_handles.rx_handle) {
+  if (attribute_handler == ble_spp_uart_0_handles.baud_rate_handle) {
     uint32_t new_uart0_baud_rate;
     memcpy(&new_uart0_baud_rate, temp_buffer, sizeof(new_uart0_baud_rate));
     uart_set_baudrate(UART_NUM_0, new_uart0_baud_rate);
-  } else if (attribute_handler == ble_spp_uart_1_handles.rx_handle) {
+  } else if (attribute_handler == ble_spp_uart_1_handles.baud_rate_handle) {
 
     uint32_t new_uart1_baud_rate;
     memcpy(&new_uart1_baud_rate, temp_buffer, sizeof(new_uart1_baud_rate));
     uart_set_baudrate(UART_NUM_1, new_uart1_baud_rate);
   }
 #if CONFIG_IDF_TARGET_ESP32S3
-  else if (attribute_handler == ble_spp_uart_2_handles.rx_handle) {
+  else if (attribute_handler == ble_spp_uart_2_handles.baud_rate_handle) {
     uint32_t new_uart2_baud_rate;
     memcpy(&new_uart2_baud_rate, temp_buffer, sizeof(new_uart2_baud_rate));
     uart_set_baudrate(UART_NUM_2, new_uart2_baud_rate);

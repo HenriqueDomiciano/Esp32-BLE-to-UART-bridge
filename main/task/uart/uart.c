@@ -34,7 +34,7 @@ void ble_server_uart_rx_task(void *pvParameters) {
 
   uart_event_t event;
 
-  uint8_t aggregate[4096] = {0};
+  uint8_t aggregate[2048] = {0};
   size_t aggregate_len = 0;
   int64_t last_rx = 0;
 
